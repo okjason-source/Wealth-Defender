@@ -1,0 +1,936 @@
+/**
+ * Game Manager
+ * Main game loop and state management
+ */
+
+import { PixelRenderer } from '../graphics/renderer';
+import { Palette } from '../graphics/palette';
+import { InputSystem } from '../systems/input';
+import { Player } from '../entities/player';
+import { ProjectileManager, ProjectileType } from '../entities/projectiles';
+import { EnemyManager, EnemyType } from '../entities/enemies';
+import { CollisionSystem } from '../systems/collision';
+import { SpawningSystem } from '../systems/spawning';
+import { ParticleSystem } from '../entities/particles';
+import { BotAI } from '../systems/bot';
+import { BonusMaze } from '../systems/bonusMaze';
+
+export class GameManager {
+  private renderer: PixelRenderer;
+  private canvas: HTMLCanvasElement;
+  private isRunning: boolean = false;
+  private lastTime: number = 0;
+  private gameWidth: number = 200; // Game pixels (will be scaled)
+  private gameHeight: number = 150;
+  private pixelSize: number = 4;
+  
+  // Game systems
+  private input: InputSystem;
+  private player: Player;
+  private projectileManager: ProjectileManager;
+  private enemyManager: EnemyManager;
+  private collisionSystem: CollisionSystem;
+  private spawningSystem: SpawningSystem;
+  private particleSystem: ParticleSystem;
+  private botAI: BotAI;
+  private bonusMaze: BonusMaze | null = null;
+  
+  // Frame counter for bot
+  private frameCount: number = 0;
+  
+  // Game state
+  private score: number = 0;
+  private lives: number = 3;
+  private round: number = 1;
+  private roundTransitionTimer: number = 0;
+  private roundTransitionDuration: number = 120; // Frames to show round transition
+  private isInRoundTransition: boolean = false;
+  private invincibilityTimer: number = 0;
+  private invincibilityDuration: number = 60; // Frames of invincibility after respawn
+  private respawnTimer: number = 0;
+  private respawnDelay: number = 30; // Frames to show explosion before respawning
+  private isRespawning: boolean = false;
+  private isGameOver: boolean = false;
+  private highScore: number = 0;
+  private isBonusRound: boolean = false;
+  private bonusRoundComplete: boolean = false;
+  private isPaused: boolean = false;
+  
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    this.setupCanvas();
+    this.renderer = new PixelRenderer(canvas, this.pixelSize);
+    
+    // Initialize systems
+    this.input = new InputSystem();
+    this.projectileManager = new ProjectileManager(this.gameWidth, this.gameHeight);
+    this.enemyManager = new EnemyManager(this.gameWidth, this.gameHeight, this.projectileManager);
+    this.collisionSystem = new CollisionSystem();
+    this.particleSystem = new ParticleSystem(this.gameWidth, this.gameHeight);
+    this.botAI = new BotAI();
+    this.spawningSystem = new SpawningSystem(
+      this.enemyManager,
+      this.gameWidth,
+      this.gameHeight
+    );
+    
+    // Initialize player (center bottom of screen - at the very bottom)
+    this.player = new Player(
+      this.gameWidth / 2 - 4,
+      this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
+      this.input,
+      this.projectileManager,
+      this.gameWidth,
+      this.gameHeight
+    );
+    
+    // Load high score from localStorage
+    const savedHighScore = localStorage.getItem('round42_highscore');
+    if (savedHighScore) {
+      this.highScore = parseInt(savedHighScore, 10);
+    }
+    
+    // Start first round
+    this.startRound(this.round, false);
+  }
+  
+  private setupCanvas(): void {
+    // Set canvas size based on game dimensions and pixel size
+    this.canvas.width = this.gameWidth * this.pixelSize;
+    this.canvas.height = this.gameHeight * this.pixelSize;
+    this.canvas.style.width = `${this.canvas.width}px`;
+    this.canvas.style.height = `${this.canvas.height}px`;
+  }
+  
+  start(): void {
+    if (this.isRunning) return;
+    
+    this.isRunning = true;
+    this.lastTime = performance.now();
+    this.gameLoop();
+  }
+  
+  private startRound(round: number, isBonus: boolean = false): void {
+    this.round = round;
+    this.isInRoundTransition = true;
+    this.roundTransitionTimer = 0;
+    this.projectileManager.clear();
+    this.enemyManager.clear();
+    this.particleSystem.clear();
+    this.isRespawning = false;
+    this.respawnTimer = 0;
+    this.bonusRoundComplete = false;
+    
+    // Set bonus round flag if explicitly requested
+    this.isBonusRound = isBonus;
+    
+    // Always reset player position to bottom center at the start of every round
+    if (!this.player) {
+      this.player = new Player(
+        this.gameWidth / 2 - 4, // Center horizontally (assuming player width ~8)
+        this.gameHeight - 5, // Bottom of screen
+        this.input,
+        this.projectileManager,
+        this.gameWidth,
+        this.gameHeight
+      );
+    } else {
+      // Reset player position to bottom center
+      const bounds = this.player.getBounds();
+      this.player.x = this.gameWidth / 2 - bounds.width / 2; // Exact center
+      this.player.y = this.gameHeight - 5; // Bottom of screen
+    }
+    
+    if (this.isBonusRound) {
+      // Initialize bonus maze
+      this.bonusMaze = new BonusMaze(this.gameWidth, this.gameHeight);
+      // Give player brief invincibility at start of bonus round
+      this.invincibilityTimer = 30; // Half second of invincibility
+    } else {
+      // Normal round
+      this.bonusMaze = null;
+      this.spawningSystem.startRound(round);
+    }
+  }
+  
+  stop(): void {
+    this.isRunning = false;
+  }
+  
+  private gameLoop = (currentTime: number = performance.now()): void => {
+    if (!this.isRunning) return;
+    
+    const deltaTime = currentTime - this.lastTime;
+    this.lastTime = currentTime;
+    
+    // Update game (60 FPS target)
+    const targetFPS = 60;
+    const frameTime = 1000 / targetFPS;
+    
+    if (deltaTime >= frameTime) {
+      this.update(deltaTime);
+      this.render();
+    }
+    
+    requestAnimationFrame(this.gameLoop);
+  };
+  
+  private update(deltaTime: number): void {
+    // Always update input first (needed for game over restart and bot toggle)
+    this.input.update();
+    this.frameCount++;
+    
+    // Toggle bot with 'B' key (only on key press, not hold)
+    if (this.input.wasKeyJustPressed('b')) {
+      this.botAI.toggle();
+      console.log('Bot toggled:', this.botAI.isBotActive() ? 'ON' : 'OFF');
+    }
+    
+    // Set bot to master level with 'M' key
+    if (this.input.wasKeyJustPressed('m')) {
+      this.botAI.setMasterLevel();
+      console.log('Bot set to MASTER LEVEL!');
+    }
+    
+    // Toggle pause with 'P' or 'Escape' key (only if not game over or in transition)
+    if (!this.isGameOver && !this.isInRoundTransition) {
+      if (this.input.wasKeyJustPressed('p') || this.input.wasKeyJustPressed('escape')) {
+        this.isPaused = !this.isPaused;
+        console.log('Game', this.isPaused ? 'PAUSED' : 'RESUMED');
+      }
+    }
+    
+    // If paused, don't update game logic (but still render)
+    if (this.isPaused) {
+      return;
+    }
+    
+    // Handle game over state
+    if (this.isGameOver) {
+      // Bot automatically restarts if active
+      if (this.botAI.isBotActive()) {
+        // Small delay before auto-restart
+        if (this.frameCount % 60 === 0) {
+          this.restartGame();
+        }
+        return;
+      }
+      
+      // Check for restart input (space, enter, or r)
+      // Note: input system stores keys as lowercase, so 'Enter' becomes 'enter'
+      if (this.input.isKeyPressed(' ') || 
+          this.input.isKeyPressed('enter') ||
+          this.input.isKeyPressed('r')) {
+        this.restartGame();
+        return;
+      }
+      return; // Don't update game logic during game over
+    }
+    
+    // Handle round transition
+    if (this.isInRoundTransition) {
+      this.roundTransitionTimer += deltaTime / 16.67;
+      if (this.roundTransitionTimer >= this.roundTransitionDuration) {
+        this.isInRoundTransition = false;
+      }
+      // Still update spawning system during transition so enemies are ready (only if not bonus round)
+      if (!this.isBonusRound) {
+        this.spawningSystem.update(deltaTime);
+        // Update enemies that are spawning (no player position needed during transition)
+        this.enemyManager.update(deltaTime);
+      }
+      return; // Don't update player/gameplay during transition
+    }
+    
+    // Handle bonus round
+    if (this.isBonusRound && this.bonusMaze && !this.bonusRoundComplete) {
+      this.updateBonusRound(deltaTime);
+      return;
+    }
+    
+    // Handle respawn sequence
+    if (this.isRespawning) {
+      const frameDelta = deltaTime / 16.67;
+      this.respawnTimer -= frameDelta;
+      
+      if (this.respawnTimer <= 0) {
+        // Respawn player with invincibility (at the very bottom center)
+        if (!this.player) {
+          this.player = new Player(
+            this.gameWidth / 2 - 4,
+            this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
+            this.input,
+            this.projectileManager,
+            this.gameWidth,
+            this.gameHeight
+          );
+        } else {
+          // Reset player position to bottom center
+          const bounds = this.player.getBounds();
+          this.player.x = this.gameWidth / 2 - bounds.width / 2; // Exact center
+          this.player.y = this.gameHeight - 5; // Bottom of screen
+        }
+        this.invincibilityTimer = this.invincibilityDuration;
+        this.isRespawning = false;
+      }
+      // Don't update player during respawn
+    } else {
+      // Update invincibility timer
+      if (this.invincibilityTimer > 0) {
+        this.invincibilityTimer -= deltaTime / 16.67;
+      }
+      
+      // Update player (with bot control if active)
+      if (this.botAI.isBotActive() && this.player) {
+        const enemies = this.enemyManager.getEnemies();
+        const enemyProjectiles = this.projectileManager.getProjectiles().filter(p => p.type === ProjectileType.ENEMY);
+        const botDecision = this.botAI.update(
+          this.player,
+          enemies,
+          enemyProjectiles,
+          this.gameWidth,
+          this.gameHeight,
+          this.frameCount
+        );
+        this.player.update(deltaTime, botDecision.moveX, botDecision.moveY, botDecision.shouldShoot);
+      } else {
+        this.player.update(deltaTime);
+      }
+    }
+    
+    // Update projectiles
+    this.projectileManager.update(deltaTime);
+    
+    // Update spawning system
+    this.spawningSystem.update(deltaTime);
+    
+    // Update enemies with player position for strategic AI (only if player exists)
+    if (this.player && !this.isRespawning) {
+      const playerBounds = this.player.getBounds();
+      const playerX = playerBounds.x + playerBounds.width / 2;
+      const playerY = playerBounds.y + playerBounds.height / 2;
+      this.enemyManager.update(deltaTime, playerX, playerY);
+    } else {
+      this.enemyManager.update(deltaTime);
+    }
+    
+    // Update particles
+    this.particleSystem.update();
+    
+    // Check round completion (only for normal rounds, not bonus rounds)
+    if (!this.isBonusRound && this.spawningSystem.isRoundComplete()) {
+      this.completeRound();
+      return;
+    }
+    
+    // Check collisions (only if not invincible, not respawning, and player exists)
+    if (this.player && !this.isRespawning && this.invincibilityTimer <= 0) {
+      const collisionResult = this.collisionSystem.checkAllCollisions(
+        this.player,
+        this.enemyManager.getEnemies(),
+        this.projectileManager.getProjectiles()
+      );
+      
+      // Handle collisions
+      if (collisionResult.playerHit) {
+        this.handlePlayerHit();
+        // Return early to avoid processing collisions again this frame
+        return;
+      }
+      
+      // Remove hit projectiles
+      for (const projectile of collisionResult.projectilesToRemove) {
+        this.projectileManager.removeProjectile(projectile);
+      }
+      
+      // Award points for destroyed enemies and create explosions
+      for (const enemy of collisionResult.enemiesHit) {
+        this.score += this.getEnemyPoints(enemy.type);
+        this.spawningSystem.onEnemyDestroyed();
+        
+        // Create explosion particles at enemy center
+        const center = enemy.getCenter();
+        const explosionColor = this.getExplosionColor(enemy.type);
+        this.particleSystem.createExplosion(center.x, center.y, explosionColor, 8);
+      }
+    }
+  }
+  
+  private completeRound(): void {
+    // Award bonus points for round completion (only for non-bonus rounds)
+    if (!this.isBonusRound) {
+      const roundBonus = this.round * 100;
+      this.score += roundBonus;
+    }
+    
+    // Check if game is complete (all 42 rounds)
+    if (this.round >= 42) {
+      // Victory! (will implement victory screen later)
+      console.log('Victory! All 42 rounds completed!');
+      this.stop();
+      return;
+    }
+    
+    // Check if we just completed a round that should trigger a bonus round
+    // Bonus rounds happen AFTER rounds 4, 8, 12, 16, 20, 24, 28, 32, 36, 40
+    // So after round 4 completes, show bonus round, then advance to round 5
+    if (this.round % 4 === 0 && !this.isBonusRound) {
+      // Start bonus round (marked as bonus, but keep same round number for display)
+      this.startRound(this.round, true); // Explicitly mark as bonus round
+      return;
+    }
+    
+    // If we just completed a bonus round, advance to the next normal round
+    if (this.isBonusRound) {
+      this.startRound(this.round + 1, false); // Next round, not a bonus
+      return;
+    }
+    
+    // Advance to next round (normal progression)
+    this.startRound(this.round + 1, false);
+  }
+  
+  /**
+   * Update bonus round (maze stage)
+   */
+  private updateBonusRound(_deltaTime: number): void {
+    if (!this.bonusMaze || !this.player) return;
+    
+    const playerBounds = this.player.getBounds();
+    
+    // Get steering input (left/right only)
+    const steerLeft = this.input.isMovingLeft();
+    const steerRight = this.input.isMovingRight();
+    
+    // Update player position (automatic forward movement, left/right steering)
+    const newPos = this.bonusMaze.updatePlayer(
+      playerBounds.x,
+      playerBounds.y,
+      playerBounds.width,
+      playerBounds.height,
+      steerLeft,
+      steerRight
+    );
+    
+    // Update player position
+    this.player.x = newPos.x;
+    this.player.y = newPos.y;
+    
+    // Get updated bounds after movement
+    const updatedBounds = this.player.getBounds();
+    
+    // Update invincibility timer (for bonus round start protection)
+    if (this.invincibilityTimer > 0) {
+      this.invincibilityTimer -= 1;
+    }
+    
+    // Check for wall collision (using NEW position, but only if not invincible)
+    if (this.invincibilityTimer <= 0 && this.bonusMaze.checkWallCollision(
+      updatedBounds.x,
+      updatedBounds.y,
+      updatedBounds.width,
+      updatedBounds.height
+    )) {
+      // Hit a wall - lose a life and restart bonus round
+      this.lives--;
+      if (this.lives <= 0) {
+        this.handleGameOver();
+        return;
+      }
+      // Reset bonus round
+      this.bonusMaze.reset();
+      this.player.x = this.gameWidth / 2 - updatedBounds.width / 2;
+      this.player.y = this.gameHeight - 5;
+      // Give brief invincibility after respawn
+      this.invincibilityTimer = 30;
+      return;
+    }
+    
+    // Check for life collection (using NEW position)
+    if (this.bonusMaze.checkLifeCollection(
+      updatedBounds.x,
+      updatedBounds.y,
+      updatedBounds.width,
+      updatedBounds.height
+    )) {
+      // Collected free life!
+      this.lives++;
+      // Create celebration particles
+      const center = {
+        x: updatedBounds.x + updatedBounds.width / 2,
+        y: updatedBounds.y + updatedBounds.height / 2
+      };
+      this.particleSystem.createConfettiExplosion(center.x, center.y, 16);
+    }
+    
+    // Check for exit (reached top) (using NEW position)
+    if (this.bonusMaze.checkExit(updatedBounds.y)) {
+      // Bonus round complete!
+      this.bonusRoundComplete = true;
+      // Award bonus points
+      const bonusPoints = 500;
+      this.score += bonusPoints;
+      // Transition to next round after a brief delay
+      setTimeout(() => {
+        this.completeRound();
+      }, 1000);
+    }
+  }
+  
+  private getEnemyPoints(type: EnemyType): number {
+    switch (type) {
+      case EnemyType.COIN:
+        return 10;
+      case EnemyType.DOLLAR_BILL:
+        return 25;
+      case EnemyType.DIAMOND:
+        return 50;
+      case EnemyType.HATER:
+        return 100;
+    }
+  }
+  
+  private getExplosionColor(type: EnemyType): string {
+    switch (type) {
+      case EnemyType.COIN:
+        return Palette.GOLD;
+      case EnemyType.DOLLAR_BILL:
+        return Palette.EMERALD_GREEN;
+      case EnemyType.DIAMOND:
+        return Palette.SAPPHIRE_BLUE;
+      case EnemyType.HATER:
+        return Palette.CRIMSON_RED;
+      default:
+        return Palette.AMBER;
+    }
+  }
+  
+  private getDamageTint(_type: EnemyType): string {
+    // Return a tint color to show damage (reddish tint)
+    return Palette.CRIMSON_RED;
+  }
+  
+  private handlePlayerHit(): void {
+    // Don't process hit if already respawning
+    if (this.isRespawning) return;
+    
+    // Create explosion at player position (before removing player)
+    const playerBounds = this.player.getBounds();
+    const playerCenter = {
+      x: playerBounds.x + playerBounds.width / 2,
+      y: playerBounds.y + playerBounds.height / 2
+    };
+    
+    // Create multi-colored neon confetti explosion for player death
+    this.particleSystem.createConfettiExplosion(playerCenter.x, playerCenter.y, 24);
+    
+    // Decrease lives
+    this.lives--;
+    
+    if (this.lives <= 0) {
+      // Game over
+      this.handleGameOver();
+      return;
+    }
+    
+    // Start respawn sequence
+    this.isRespawning = true;
+    this.respawnTimer = this.respawnDelay;
+    // Remove player temporarily (will be recreated after delay)
+    this.player = null as any;
+  }
+  
+  private render(): void {
+    // Clear screen
+    this.renderer.clear();
+    
+    // Draw background stars
+    this.drawStars();
+    
+    // Draw game over screen
+    if (this.isGameOver) {
+      this.drawGameOver();
+      return; // Don't draw game entities during game over
+    }
+    
+    // Draw HUD (only if not game over)
+    this.drawHUD();
+    
+    // Draw round transition message
+    if (this.isInRoundTransition) {
+      this.drawRoundTransition();
+      return; // Don't draw game entities during transition
+    }
+    
+    // Draw bonus round (maze)
+    if (this.isBonusRound && this.bonusMaze) {
+      this.drawBonusRound();
+      return;
+    }
+    
+    // Draw player (with invincibility flash effect, but not during respawn)
+    if (this.player && !this.isRespawning) {
+      if (this.invincibilityTimer <= 0 || Math.floor(this.invincibilityTimer / 3) % 2 === 0) {
+        const playerSprite = this.player.getSprite();
+        this.renderer.drawSprite(
+          playerSprite,
+          Math.floor(this.player.getBounds().x),
+          Math.floor(this.player.getBounds().y)
+        );
+      }
+    }
+    
+    // Draw enemies
+    for (const enemy of this.enemyManager.getEnemies()) {
+      const enemySprite = enemy.getSprite();
+      const bounds = enemy.getBounds();
+      
+      // Apply damage tint if enemy is damaged
+      const tint = enemy.isDamaged() ? this.getDamageTint(enemy.type) : undefined;
+      
+      this.renderer.drawSprite(
+        enemySprite,
+        Math.floor(bounds.x),
+        Math.floor(bounds.y),
+        tint
+      );
+    }
+    
+    // Draw particles
+    for (const particle of this.particleSystem.getParticles()) {
+      this.renderer.drawParticle(
+        particle.x,
+        particle.y,
+        particle.color,
+        particle.size,
+        particle.getAlpha()
+      );
+    }
+    
+    // Draw projectiles
+    for (const projectile of this.projectileManager.getProjectiles()) {
+      const projSprite = projectile.getSprite();
+      this.renderer.drawSprite(
+        projSprite,
+        Math.floor(projectile.getBounds().x),
+        Math.floor(projectile.getBounds().y)
+      );
+    }
+    
+    // Draw pause overlay (on top of everything, after all game entities)
+    if (this.isPaused) {
+      this.drawPauseScreen();
+    }
+  }
+  
+  private drawRoundTransition(): void {
+    const progress = this.roundTransitionTimer / this.roundTransitionDuration;
+    
+    // Draw round number (center aligned)
+    const roundText = this.isBonusRound ? 'BONUS ROUND!' : `ROUND ${this.round}`;
+    this.renderer.drawText(
+      roundText,
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 10,
+      this.isBonusRound ? Palette.EMERALD_GREEN : Palette.GOLD,
+      1.5,
+      'center'
+    );
+    
+    // Draw "GET READY" message (center aligned)
+    if (progress < 0.7) {
+      const message = this.isBonusRound ? 'STEER LEFT/RIGHT!' : 'GET READY!';
+      this.renderer.drawText(
+        message,
+        this.gameWidth / 2,
+        this.gameHeight / 2 + 5,
+        Palette.PLATINUM,
+        0.8,
+        'center'
+      );
+    }
+  }
+  
+  /**
+   * Draw bonus round (maze)
+   */
+  private drawBonusRound(): void {
+    if (!this.bonusMaze) return;
+    
+    // Draw maze walls (red/gray stripes like the image)
+    const walls = this.bonusMaze.getWalls();
+    for (const wall of walls) {
+      // Alternate between red and gray for visual effect
+      const color = (Math.floor(wall.y / 5) % 2 === 0) ? Palette.CRIMSON_RED : Palette.PLATINUM;
+      this.renderer.drawRect(
+        Math.floor(wall.x),
+        Math.floor(wall.y),
+        Math.floor(wall.width),
+        Math.floor(wall.height),
+        color
+      );
+    }
+    
+    // Draw free life (if not collected)
+    const life = this.bonusMaze.getLife();
+    if (life) {
+      // Draw a simple life icon (heart or star shape)
+      // For now, draw a gold circle
+      this.renderer.drawRect(
+        Math.floor(life.x - 4),
+        Math.floor(life.y - 4),
+        8,
+        8,
+        Palette.GOLD
+      );
+      // Draw a small cross or plus sign in the center
+      this.renderer.drawRect(
+        Math.floor(life.x - 1),
+        Math.floor(life.y - 3),
+        2,
+        6,
+        Palette.RICH_BLACK
+      );
+      this.renderer.drawRect(
+        Math.floor(life.x - 3),
+        Math.floor(life.y - 1),
+        6,
+        2,
+        Palette.RICH_BLACK
+      );
+    }
+    
+    // Draw player
+    if (this.player && !this.isRespawning) {
+      const playerSprite = this.player.getSprite();
+      this.renderer.drawSprite(
+        playerSprite,
+        Math.floor(this.player.getBounds().x),
+        Math.floor(this.player.getBounds().y)
+      );
+    }
+    
+    // Draw particles
+    for (const particle of this.particleSystem.getParticles()) {
+      this.renderer.drawParticle(
+        particle.x,
+        particle.y,
+        particle.color,
+        particle.size,
+        particle.getAlpha()
+      );
+    }
+    
+    // Draw bonus round instructions
+    this.renderer.drawText(
+      'BONUS ROUND',
+      this.gameWidth / 2 - 40,
+      10,
+      Palette.EMERALD_GREEN,
+      0.6
+    );
+    this.renderer.drawText(
+      'GET THE LIFE!',
+      this.gameWidth / 2 - 35,
+      18,
+      Palette.GOLD,
+      0.5
+    );
+  }
+  
+  private handleGameOver(): void {
+    this.isGameOver = true;
+    
+    // Update high score if current score is higher
+    if (this.score > this.highScore) {
+      this.highScore = this.score;
+      localStorage.setItem('round42_highscore', this.highScore.toString());
+    }
+    
+    // Notify bot of game end for learning
+    if (this.botAI.isBotActive()) {
+      this.botAI.onGameEnd(this.score, this.round);
+    }
+    
+    // Don't stop the game loop - we need to keep running to check for restart input
+    // The update loop will return early when isGameOver is true, but still check for restart
+  }
+  
+  private restartGame(): void {
+    // Reset all game state
+    this.score = 0;
+    this.lives = 3;
+    this.round = 1;
+    this.isGameOver = false;
+    this.isInRoundTransition = false;
+    this.isRespawning = false;
+    this.isPaused = false; // Reset pause state
+    this.invincibilityTimer = 0;
+    this.respawnTimer = 0;
+    this.roundTransitionTimer = 0;
+    this.frameCount = 0;
+    
+    // Clear all entities
+    this.projectileManager.clear();
+    this.enemyManager.clear();
+    this.particleSystem.clear();
+    
+    // Reset player (at the very bottom)
+    this.player = new Player(
+      this.gameWidth / 2 - 4,
+      this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
+      this.input,
+      this.projectileManager,
+      this.gameWidth,
+      this.gameHeight
+    );
+    
+    // Start first round
+    this.startRound(this.round, false);
+    
+    // Restart game loop
+    this.start();
+  }
+  
+  private drawGameOver(): void {
+    // Draw "GAME OVER" title (center aligned)
+    this.renderer.drawText(
+      'GAME OVER',
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 40,
+      Palette.CRIMSON_RED,
+      1.5,
+      'center'
+    );
+    
+    // Draw final score (center aligned)
+    this.renderer.drawText(
+      `FINAL SCORE: ${this.score}`,
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 20,
+      Palette.GOLD,
+      0.8,
+      'center'
+    );
+    
+    // Draw round reached (center aligned)
+    this.renderer.drawText(
+      `ROUND REACHED: ${this.round}/42`,
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 10,
+      Palette.EMERALD_GREEN,
+      0.7,
+      'center'
+    );
+    
+    // Draw high score (center aligned)
+    if (this.highScore > 0) {
+      const highScoreText = this.score === this.highScore ? 'NEW HIGH SCORE!' : `HIGH SCORE: ${this.highScore}`;
+      const highScoreColor = this.score === this.highScore ? Palette.GOLD : Palette.PLATINUM;
+      this.renderer.drawText(
+        highScoreText,
+        this.gameWidth / 2,
+        this.gameHeight / 2 + 5,
+        highScoreColor,
+        0.7,
+        'center'
+      );
+    }
+    
+    // Draw restart instruction (center aligned)
+    this.renderer.drawText(
+      'PRESS SPACE/ENTER/R TO RESTART',
+      this.gameWidth / 2,
+      this.gameHeight / 2 + 25,
+      Palette.PLATINUM,
+      0.6,
+      'center'
+    );
+  }
+  
+  private drawPauseScreen(): void {
+    // Draw semi-transparent overlay (darken the screen)
+    const ctx = this.renderer.getContext();
+    const oldAlpha = ctx.globalAlpha;
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = Palette.RICH_BLACK;
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.globalAlpha = oldAlpha;
+    
+    // Draw "PAUSED" title (center aligned)
+    this.renderer.drawText(
+      'PAUSED',
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 15,
+      Palette.GOLD,
+      1.5,
+      'center'
+    );
+    
+    // Draw instruction (center aligned)
+    this.renderer.drawText(
+      'PRESS P OR ESC TO RESUME',
+      this.gameWidth / 2,
+      this.gameHeight / 2 + 5,
+      Palette.PLATINUM,
+      0.7,
+      'center'
+    );
+  }
+  
+  private drawHUD(): void {
+    // Score
+    this.renderer.drawText(`SCORE: ${this.score}`, 5, 5, Palette.GOLD, 0.5);
+    
+    // Lives
+    this.renderer.drawText(`LIVES: ${this.lives}`, 5, 12, Palette.PLATINUM, 0.5);
+    
+    // Round
+    this.renderer.drawText(`ROUND: ${this.round}/42`, 5, 19, Palette.EMERALD_GREEN, 0.5);
+    
+    // Enemy count
+    const enemyCount = this.enemyManager.getEnemyCount();
+    this.renderer.drawText(`ENEMIES: ${enemyCount}`, 5, 26, Palette.SAPPHIRE_BLUE, 0.5);
+    
+    // High score (if exists)
+    if (this.highScore > 0) {
+      this.renderer.drawText(`HIGH: ${this.highScore}`, 5, 33, Palette.AMBER, 0.4);
+    }
+    
+    // Bot status
+    if (this.botAI.isBotActive()) {
+      const skillLevel = this.botAI.getSkillLevel();
+      const skillPercent = Math.round(skillLevel * 100);
+      this.renderer.drawText(`BOT: ON (${skillPercent}%)`, this.gameWidth - 60, 5, Palette.EMERALD_GREEN, 0.5);
+    } else {
+      this.renderer.drawText(`BOT: OFF (Press B)`, this.gameWidth - 75, 5, Palette.PLATINUM, 0.4);
+    }
+  }
+  
+  private drawStars(): void {
+    // Simple static starfield
+    const starCount = 50;
+    for (let i = 0; i < starCount; i++) {
+      const x = (i * 37) % this.gameWidth;
+      const y = (i * 73) % this.gameHeight;
+      this.renderer.drawPixel(x, y, Palette.STAR_COLOR);
+    }
+  }
+  
+  getRenderer(): PixelRenderer {
+    return this.renderer;
+  }
+  
+  getGameWidth(): number {
+    return this.gameWidth;
+  }
+  
+  getGameHeight(): number {
+    return this.gameHeight;
+  }
+  
+  getBotAI(): BotAI {
+    return this.botAI;
+  }
+}
+
