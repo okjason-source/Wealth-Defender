@@ -1,0 +1,33 @@
+{
+  "name": "wealth-defender",
+  "version": "1.0.0",
+  "description": "Wealth Defender - Billionaire Mindset - A classic arcade shooter",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "game",
+    "arcade",
+    "shooter",
+    "typescript",
+    "pixel-art",
+    "retro",
+    "canvas"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/okjason-source/Wealth-Defender.git"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8"
+  },
+  "dependencies": {}
+}
+
