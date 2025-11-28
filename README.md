@@ -10,7 +10,7 @@ A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel a
 
 - **42 Unique Rounds** - Progressive difficulty with unique enemy patterns
 - **8-Bit Pixel Art** - Retro aesthetic with encoded sprites (zero external assets)
-- **Billionaire Theme** - Fight against Dollar Bills, Diamonds, Coins, and Haters
+- **Billionaire Theme** - Shoot down Dollar Bills, Diamonds, Coins, and Haters
 - **AI Bot** - Watch an AI learn and master the game (press `B` to toggle)
 - **Rapid Fire Combat** - Short, fast projectiles for intense action
 - **Pause System** - Take a break anytime (press `P` or `Escape`)
