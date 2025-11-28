@@ -139,20 +139,23 @@ export class BonusMaze {
   }
 
   /**
-   * Place 10 free lives throughout the maze
+   * Place 5 free lives throughout the maze
+   * Positioned on left side - player must choose between life and laser
    */
   private placeLives(): void {
     this.lives = [];
-    const totalLives = 10;
+    const totalLives = 5;
     
-    // Distribute lives across different segments
+    // Place lives in segments 1, 2, 3, 4, 5 (spread out)
     for (let i = 0; i < totalLives; i++) {
-      // Place in middle segments (not too close to start or end)
-      const lifeSegment = 1 + Math.floor(Math.random() * (this.segments - 2));
-      const lifeY = lifeSegment * this.segmentHeight + (Math.random() - 0.5) * (this.segmentHeight * 0.6);
+      const segmentIndex = 1 + i; // Segments 1-5
+      const lifeY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
-      // Place it in the center of the path at that segment with variation
-      const lifeX = this.gameWidth / 2 + (Math.random() - 0.5) * (this.pathWidth / 2 - 10);
+      // Place lives on the LEFT side of the path
+      // Path center is gameWidth/2 (100), path width is 45
+      // Left edge of path is at 100 - 22.5 = 77.5
+      // Place pickups 8-16 pixels from left edge of path
+      const lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 8 + Math.random() * 8;
       
       this.lives.push({
         x: lifeX,
@@ -163,20 +166,23 @@ export class BonusMaze {
   }
   
   /**
-   * Place 20 laser pickups throughout the maze
+   * Place 5 laser pickups throughout the maze
+   * Positioned on right side - player must choose between life and laser
    */
   private placeLasers(): void {
     this.lasers = [];
-    const totalLasers = 20;
+    const totalLasers = 5;
     
-    // Distribute lasers across different segments
+    // Place lasers in segments 2, 3, 4, 5, 6 (slightly offset from lives for challenge)
     for (let i = 0; i < totalLasers; i++) {
-      // Place in middle segments (not too close to start or end)
-      const laserSegment = 1 + Math.floor(Math.random() * (this.segments - 2));
-      const laserY = laserSegment * this.segmentHeight + (Math.random() - 0.5) * (this.segmentHeight * 0.6);
+      const segmentIndex = 2 + i; // Segments 2-6
+      const laserY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
-      // Place it in the center of the path at that segment with variation
-      const laserX = this.gameWidth / 2 + (Math.random() - 0.5) * (this.pathWidth / 2 - 10);
+      // Place lasers on the RIGHT side of the path
+      // Path center is gameWidth/2 (100), path width is 45
+      // Right edge of path is at 100 + 22.5 = 122.5
+      // Place pickups 8-16 pixels from right edge of path
+      const laserX = this.gameWidth / 2 + this.pathWidth / 2 - 16 - Math.random() * 8;
       
       this.lasers.push({
         x: laserX,

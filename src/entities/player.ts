@@ -40,6 +40,7 @@ export class Player {
   private lightningLaserTargets: Array<{ enemy: Enemy; x: number; y: number }> = [];
   private lightningLaserColor: string = Palette.PURE_WHITE;
   private lightningLaserRange: number = 80; // Maximum range to hit enemies
+  private lightningLaserDestroyedEnemies: Enemy[] = []; // Enemies destroyed by lightning laser this frame
   
   constructor(
     x: number,
@@ -224,6 +225,8 @@ export class Player {
     const enemies = this.enemyManager.getEnemies();
     
     this.lightningLaserTargets = [];
+    this.lightningLaserDestroyedEnemies = [];
+    
     for (const enemy of enemies) {
       const enemyBounds = enemy.getBounds();
       const enemyCenterX = enemyBounds.x + enemyBounds.width / 2;
@@ -241,12 +244,25 @@ export class Player {
         });
         // Destroy enemy with 1 shot
         enemy.takeDamage(enemy.maxHealth);
+        // Track destroyed enemies so game manager can award points and notify spawning system
+        if (!enemy.active) {
+          this.lightningLaserDestroyedEnemies.push(enemy);
+        }
       }
     }
     
     // Activate laser visual
     this.lightningLaserActive = true;
     this.lightningLaserDuration = this.lightningLaserMaxDuration;
+  }
+  
+  /**
+   * Get enemies destroyed by lightning laser (clears the list after returning)
+   */
+  getLightningLaserDestroyedEnemies(): Enemy[] {
+    const destroyed = [...this.lightningLaserDestroyedEnemies];
+    this.lightningLaserDestroyedEnemies = []; // Clear after returning
+    return destroyed;
   }
   
   getLightningLaserData(): { active: boolean; targets: Array<{ x: number; y: number }>; color: string; playerX: number; playerY: number } | null {

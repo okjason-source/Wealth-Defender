@@ -357,6 +357,20 @@ export class GameManager {
         this.particleSystem.createExplosion(center.x, center.y, explosionColor, 8);
       }
     }
+    
+    // Handle lightning laser destroyed enemies
+    if (this.player) {
+      const laserDestroyedEnemies = this.player.getLightningLaserDestroyedEnemies();
+      for (const enemy of laserDestroyedEnemies) {
+        this.score += this.getEnemyPoints(enemy.type);
+        this.spawningSystem.onEnemyDestroyed();
+        
+        // Create explosion particles at enemy center
+        const center = enemy.getCenter();
+        const explosionColor = this.getExplosionColor(enemy.type);
+        this.particleSystem.createExplosion(center.x, center.y, explosionColor, 8);
+      }
+    }
   }
   
   private completeRound(): void {
