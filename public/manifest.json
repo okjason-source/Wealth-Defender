@@ -1,0 +1,43 @@
+{
+  "name": "Wealth Defender - Billionaire Mindset",
+  "short_name": "Wealth Defender",
+  "description": "A classic arcade shoot 'em up game with 8-bit pixel art graphics. Defend your wealth through 42 challenging rounds!",
+  "start_url": "/Wealth-Defender/",
+  "scope": "/Wealth-Defender/",
+  "id": "/Wealth-Defender/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#FFD700",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/Wealth-Defender/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/Wealth-Defender/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Start Game",
+      "short_name": "Play",
+      "description": "Start a new game",
+      "url": "/Wealth-Defender/",
+      "icons": [
+        {
+          "src": "/Wealth-Defender/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
+
