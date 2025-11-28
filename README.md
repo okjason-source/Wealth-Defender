@@ -10,7 +10,7 @@ A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel a
 
 - **42 Unique Rounds** - Progressive difficulty with unique enemy patterns
 - **8-Bit Pixel Art** - Retro aesthetic with encoded sprites (zero external assets)
-- **Billionaire Theme** - Fight against Dollar Bills, Diamonds, Coins, and Haters
+- **Billionaire Theme** - Shoot down Dollar Bills, Diamonds, Coins, and Haters
 - **AI Bot** - Watch an AI learn and master the game (press `B` to toggle)
 - **Rapid Fire Combat** - Short, fast projectiles for intense action
 - **Pause System** - Take a break anytime (press `P` or `Escape`)
@@ -141,14 +141,6 @@ The bot's progress is saved to localStorage and persists between sessions.
 - ✅ AI bot with learning system
 - ✅ Bonus maze rounds
 
-### Future Enhancements
-
-- 🎵 Audio system (background music & sound effects)
-- 🎯 Main menu and settings
-- 📊 Online leaderboards
-- 💪 Power-up system
-- 👾 Boss battles
-
 ## 🌐 Deployment
 
 ### GitHub Pages
@@ -181,7 +173,7 @@ This project is open source and available under the [MIT License](LICENSE).
 
 ## 🙏 Acknowledgments
 
-- Inspired by the classic arcade game **Round 42** (1986)
+- Inspired by the classic 80's shooter arcade games.
 - Built with modern web technologies while preserving retro aesthetics
 - All graphics are programmatically generated (no external assets)
 
