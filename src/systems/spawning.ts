@@ -107,7 +107,7 @@ export class SpawningSystem {
       this.enemyManager.spawnFallingEnemy(
         wave.enemyType,
         randomX,
-        0, // Top of screen
+        0, // Top of screen - always at the very top
         speedMultiplier,
         canShoot
       );
@@ -117,12 +117,11 @@ export class SpawningSystem {
     
     // For line formation, spawn entire row at once (only on first index)
     if (wave.formation === 'line' && index === 0) {
-      // ALWAYS start at the very top of gameplay area (y=0 or very close)
-      // Stagger rows vertically but keep them all in the top area
-      // Use minimal spacing (8-10 pixels) so all rows start near the top
-      const rowSpacing = 10; // Small spacing between rows (reduced from 20)
-      const maxStartY = 25; // Maximum Y position for starting (keep all rows in top 25 pixels)
-      const yPos = Math.min(maxStartY, this.currentWaveIndex * rowSpacing); // Always start at top, max 25 pixels down
+      // CRITICAL: ALL enemies must start at the very top (y=0) for playability
+      // Even with multiple rows, they should all start at the top
+      // The vertical spacing was causing enemies to start too low, making rounds unplayable
+      const finalYPos = 0; // Always start at the very top - DO NOT CHANGE
+      
       const breakChance = 0.0005 + (this.currentRound * 0.0001);
       
       // Calculate speed multiplier based on round (starts at 1.0, increases with each round)
@@ -135,11 +134,12 @@ export class SpawningSystem {
       
       this.enemyManager.spawnEnemyLine(
         wave.enemyType,
-        yPos,
+        finalYPos,
         wave.count,
         breakChance,
         speedMultiplier,
-        canShoot
+        canShoot,
+        cycle
       );
       this.enemiesSpawned += wave.count;
     }
@@ -156,6 +156,12 @@ export class SpawningSystem {
     // - Rounds 1-36: Each of 4 types cycles 9 times (4 types × 9 = 36 rounds)
     // - Rounds 37-42: Mixed types (6 rounds)
     
+    // Brain replacement levels: 
+    // Level 3 (diamonds), 5 (coins), 10 (dollars), 16 (haters), 19 (diamonds), 
+    // then continuing the pattern: 22 (coins), 26 (dollars), 30 (haters), 33 (diamonds), 36 (haters)
+    const brainLevels = [3, 5, 10, 16, 19, 22, 26, 30, 33, 36];
+    const isBrainLevel = brainLevels.includes(round);
+    
     let enemyType: EnemyType;
     let isMixed = false;
     
@@ -171,6 +177,11 @@ export class SpawningSystem {
         EnemyType.HATER,
       ];
       enemyType = typeCycle[(round - 1) % 4];
+      
+      // Replace with brain if this is a brain level
+      if (isBrainLevel) {
+        enemyType = EnemyType.BRAIN;
+      }
     } else {
       // Rounds 37-42: Mixed types
       isMixed = true;
@@ -262,6 +273,18 @@ export class SpawningSystem {
             spawnDelay: 0,
             formation: 'line',
             spacing: haterSpacing, // Tighter spacing for haters
+          });
+        }
+      } else if (enemyType === EnemyType.BRAIN) {
+        // Brains: spawn in line formation with wave movement pattern
+        const brainSpacing = Math.max(8, 18 - Math.floor(enemiesPerRow / 15));
+        for (let row = 0; row < rowsPerRound; row++) {
+          waves.push({
+            enemyType: enemyType,
+            count: enemiesPerRowActual,
+            spawnDelay: 0,
+            formation: 'line',
+            spacing: brainSpacing,
           });
         }
       } else {

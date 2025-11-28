@@ -8,6 +8,7 @@ import {
   DIAMOND_FRAMES,
   COIN_SPRITE,
   HATER_SPRITE,
+  BRAIN_FRAMES,
 } from '../graphics/sprites';
 import { ProjectileManager, ProjectileType } from './projectiles';
 import { EnemyLine } from './enemyLine';
@@ -17,6 +18,7 @@ export enum EnemyType {
   DIAMOND,
   COIN,
   HATER,
+  BRAIN,
 }
 
 export class Enemy {
@@ -25,8 +27,8 @@ export class Enemy {
   vx: number;
   vy: number;
   type: EnemyType;
-  width: number;
-  height: number;
+  width: number = 8;
+  height: number = 8;
   active: boolean = true;
   health: number = 1;
   maxHealth: number = 1;
@@ -57,9 +59,11 @@ export class Enemy {
   private projectileManager: ProjectileManager | null = null;
   private canShoot: boolean = false;
   private shootCooldown: number = 0;
-  private shootCooldownMax: number = 180; // Frames between shots (increased for easier difficulty)
-  private shootChance: number = 0.3; // Only 30% chance to shoot when cooldown is ready
+  private shootCooldownMax: number = 180; // Frames between shots (will be set based on type and cycle)
+  private shootChance: number = 0.3; // Chance to shoot (will be set based on type and cycle)
   
+  private cycle: number = 1; // Cycle for progressive difficulty (all enemies)
+
   constructor(
     x: number,
     y: number,
@@ -70,7 +74,8 @@ export class Enemy {
     gameWidth: number = 200,
     gameHeight: number = 150,
     projectileManager?: ProjectileManager,
-    canShoot: boolean = false
+    canShoot: boolean = false,
+    cycle: number = 1
   ) {
     this.x = x;
     this.y = y;
@@ -81,6 +86,7 @@ export class Enemy {
     this.gameHeight = gameHeight;
     this.projectileManager = projectileManager || null;
     this.canShoot = canShoot;
+    this.cycle = cycle; // Store cycle for progressive difficulty
     
     // Set dimensions and health based on type
     switch (type) {
@@ -92,6 +98,10 @@ export class Enemy {
         this.maxHealth = 2;
         // Randomize starting animation frame for variety
         this.animationFrame = Math.floor(Math.random() * DOLLAR_BILL_FRAMES.length);
+        // Progressive shooting: Cycle 1 = 26%, Cycle 2 = 28%, ... Cycle 9 = 42%
+        this.shootChance = 0.26 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 195, Cycle 2 = 185, ... Cycle 9 = 115
+        this.shootCooldownMax = 195 - ((cycle - 1) * 10);
         break;
       case EnemyType.DIAMOND:
         // Use first frame for dimensions (all frames should be same size)
@@ -101,18 +111,56 @@ export class Enemy {
         this.maxHealth = 3;
         // Randomize starting animation frame for variety
         this.animationFrame = Math.floor(Math.random() * DIAMOND_FRAMES.length);
+        // Progressive shooting: Cycle 1 = 27%, Cycle 2 = 29%, ... Cycle 9 = 43%
+        this.shootChance = 0.27 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 192, Cycle 2 = 182, ... Cycle 9 = 112
+        this.shootCooldownMax = 192 - ((cycle - 1) * 10);
         break;
       case EnemyType.COIN:
         this.width = COIN_SPRITE[0].length;
         this.height = COIN_SPRITE.length;
         this.health = 1;
         this.maxHealth = 1;
+        // Progressive shooting: Cycle 1 = 25%, Cycle 2 = 27%, ... Cycle 9 = 41%
+        this.shootChance = 0.25 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 200, Cycle 2 = 190, ... Cycle 9 = 120
+        this.shootCooldownMax = 200 - ((cycle - 1) * 10);
         break;
       case EnemyType.HATER:
         this.width = HATER_SPRITE[0].length;
         this.height = HATER_SPRITE.length;
         this.health = 2;
         this.maxHealth = 2;
+        // Progressive shooting: Cycle 1 = 28%, Cycle 2 = 30%, ... Cycle 9 = 44%
+        this.shootChance = 0.28 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 190, Cycle 2 = 180, ... Cycle 9 = 110
+        this.shootCooldownMax = 190 - ((cycle - 1) * 10);
+        break;
+      case EnemyType.BRAIN:
+        // Use first frame for dimensions (all frames should be same size)
+        // Brain is 8x10 pixels (oval shape with brainstem)
+        this.width = BRAIN_FRAMES[0][0].length;
+        this.height = BRAIN_FRAMES[0].length;
+        this.health = 5; // Unique: 5 hits to destroy (because they descend slower)
+        this.maxHealth = 5;
+        // Randomize starting animation frame for variety
+        this.animationFrame = Math.floor(Math.random() * BRAIN_FRAMES.length);
+        // Progressive shooting: Cycle 1 = 30%, Cycle 2 = 32%, ... Cycle 9 = 46%
+        this.shootChance = 0.30 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 180, Cycle 2 = 170, ... Cycle 9 = 100
+        this.shootCooldownMax = 180 - ((cycle - 1) * 10);
+        break;
+      case EnemyType.DOLLAR_BILL:
+        // Progressive shooting: Cycle 1 = 26%, Cycle 2 = 28%, ... Cycle 9 = 42%
+        this.shootChance = 0.26 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 195, Cycle 2 = 185, ... Cycle 9 = 115
+        this.shootCooldownMax = 195 - ((cycle - 1) * 10);
+        break;
+      case EnemyType.DIAMOND:
+        // Progressive shooting: Cycle 1 = 27%, Cycle 2 = 29%, ... Cycle 9 = 43%
+        this.shootChance = 0.27 + ((cycle - 1) * 0.02);
+        // Progressive cooldown: Cycle 1 = 192, Cycle 2 = 182, ... Cycle 9 = 112
+        this.shootCooldownMax = 192 - ((cycle - 1) * 10);
         break;
     }
   }
@@ -140,6 +188,17 @@ export class Enemy {
       if (this.animationTimer >= diamondAnimationSpeed) {
         this.animationTimer = 0;
         this.animationFrame = (this.animationFrame + 1) % DIAMOND_FRAMES.length;
+      }
+    }
+    
+    // Update flickering animation for brains (faster flicker)
+    if (this.type === EnemyType.BRAIN) {
+      this.animationTimer += frameDelta;
+      // Brains flicker faster (6 frames per animation frame for noticeable flicker)
+      const brainAnimationSpeed = 6;
+      if (this.animationTimer >= brainAnimationSpeed) {
+        this.animationTimer = 0;
+        this.animationFrame = (this.animationFrame + 1) % BRAIN_FRAMES.length;
       }
     }
     
@@ -182,11 +241,27 @@ export class Enemy {
     if (this.isInLine) {
       // Move with the line
       this.x = lineX + this.lineX;
-      this.y = lineY;
+      
+      // Brains have individual wave pattern - each enemy oscillates up/down based on position
+      // Progressive difficulty: wave becomes more intense with cycles
+      if (this.type === EnemyType.BRAIN) {
+        // Progressive wave amplitude: Cycle 1 = 2px, Cycle 2 = 2.5px, ... Cycle 9 = 5px
+        const waveAmplitude = 2 + ((this.cycle - 1) * 0.375);
+        // Progressive wave frequency: Cycle 1 = 0.02, Cycle 2 = 0.025, ... Cycle 9 = 0.05
+        const waveFrequency = 0.02 + ((this.cycle - 1) * 0.00375);
+        // Progressive phase offset: Cycle 1 = 0.2, Cycle 2 = 0.25, ... Cycle 9 = 0.4
+        const wavePhase = this.lineX * (0.2 + ((this.cycle - 1) * 0.025));
+        const waveOffset = Math.sin((this.patternTime * waveFrequency) + wavePhase) * waveAmplitude;
+        this.y = lineY + waveOffset; // Apply wave offset to base line Y
+        this.patternTime += deltaTime / 16.67; // Update pattern time
+      } else {
+        // Normal enemies follow line Y position
+        this.y = lineY;
+      }
       
       // Ensure enemy stays within horizontal bounds (for coins, dollars, diamonds)
-      // Haters have their own wrap-around logic, so skip for them
-      if (this.type !== EnemyType.HATER) {
+      // Haters and brains have their own wrap-around logic, so skip for them
+      if (this.type !== EnemyType.HATER && this.type !== EnemyType.BRAIN) {
         // Clamp to screen bounds
         if (this.x < 0) {
           this.x = 0;
@@ -195,25 +270,47 @@ export class Enemy {
         }
       }
       
-      // Strategic breakaway: higher chance when aligned with player
+      // Strategic breakaway: progressive difficulty based on cycle
+      // All enemies can break away, but chance increases with cycles
       let breakawayModifier = 1.0;
       if (playerX !== undefined && playerY !== undefined) {
         const distanceToPlayerX = Math.abs(this.x - playerX);
         const distanceToPlayerY = playerY - this.y;
         
-        // Increase breakaway chance when:
-        // 1. Aligned with player horizontally
-        if (distanceToPlayerX < 30 && distanceToPlayerY > 0 && distanceToPlayerY < 60) {
-          breakawayModifier = 3.0; // 3x more likely
-        }
-        // 2. Player is cornered (near edges)
-        else if ((playerX < 20 || playerX > this.gameWidth - 20) && distanceToPlayerY > 0) {
-          breakawayModifier = 2.0; // 2x more likely
+        // Progressive breakaway: base chance increases with cycle
+        // Cycle 1: 1.0x, Cycle 2: 1.2x, ... Cycle 9: 2.6x
+        const cycleMultiplier = 1.0 + ((this.cycle - 1) * 0.2);
+        
+        // For brains in later cycles, use strategic breakaway (not random)
+        if (this.type === EnemyType.BRAIN && this.cycle >= 4) {
+          // Brains break away strategically: when player is cornered or directly below
+          if ((playerX < 20 || playerX > this.gameWidth - 20) && distanceToPlayerY > 0 && distanceToPlayerY < 50) {
+            breakawayModifier = 2.0 * cycleMultiplier; // Strategic flanking attack
+          } else if (distanceToPlayerX < 25 && distanceToPlayerY > 0 && distanceToPlayerY < 40) {
+            breakawayModifier = 1.5 * cycleMultiplier; // Direct attack when aligned
+          } else {
+            breakawayModifier = 0.3 * cycleMultiplier; // Lower chance otherwise (more strategic)
+          }
+        } else {
+          // Normal breakaway logic for other enemies (progressive with cycle)
+          // Increase breakaway chance when:
+          // 1. Aligned with player horizontally
+          if (distanceToPlayerX < 30 && distanceToPlayerY > 0 && distanceToPlayerY < 60) {
+            breakawayModifier = 3.0 * cycleMultiplier; // 3x more likely (scaled by cycle)
+          }
+          // 2. Player is cornered (near edges)
+          else if ((playerX < 20 || playerX > this.gameWidth - 20) && distanceToPlayerY > 0) {
+            breakawayModifier = 2.0 * cycleMultiplier; // 2x more likely (scaled by cycle)
+          } else {
+            breakawayModifier = 1.0 * cycleMultiplier; // Base chance (scaled by cycle)
+          }
         }
       }
       
       // Chance to break away and attack
-      if (Math.random() < this.breakawayChance * frameDelta * breakawayModifier) {
+      // For brains, use lower base chance but strategic modifiers
+      const baseChance = this.type === EnemyType.BRAIN ? (this.breakawayChance * 0.5) : this.breakawayChance;
+      if (Math.random() < baseChance * frameDelta * breakawayModifier) {
         this.triggerBreakaway(playerX, playerY);
       }
     } else {
@@ -408,6 +505,9 @@ export class Enemy {
         return COIN_SPRITE;
       case EnemyType.HATER:
         return HATER_SPRITE;
+      case EnemyType.BRAIN:
+        // Return current animation frame for flickering
+        return BRAIN_FRAMES[this.animationFrame];
     }
   }
   
@@ -494,7 +594,8 @@ export class EnemyManager {
     enemyCount: number,
     breakawayChance: number = 0.001,
     speedMultiplier: number = 1.0,
-    canShoot: boolean = false
+    canShoot: boolean = false,
+    cycle: number = 1
   ): void {
     const line = new EnemyLine(
       type,
@@ -505,7 +606,8 @@ export class EnemyManager {
       breakawayChance,
       speedMultiplier,
       this.projectileManager,
-      canShoot
+      canShoot,
+      cycle
     );
     this.enemyLines.push(line);
   }

@@ -16,16 +16,22 @@ export interface BonusLife {
   collected: boolean;
 }
 
+export interface BonusLaser {
+  x: number;
+  y: number;
+  collected: boolean;
+}
+
 export class BonusMaze {
   private walls: MazeWall[] = [];
-  private life!: BonusLife; // Initialized in generateMaze/placeLife
+  private lives: BonusLife[] = []; // Array of life pickups (10 total)
+  private lasers: BonusLaser[] = []; // Array of laser pickups (20 total)
   private gameWidth: number;
   private gameHeight: number; // Used in placeLife and checkExit
   private pathWidth: number = 45; // Width of the path through the maze (increased for easier navigation)
   private segments: number = 8; // Number of horizontal segments in the maze
   private segmentHeight: number;
   private playerAutoSpeed: number = 0.5; // Automatic forward movement speed
-  private lifeCollected: boolean = false;
   private exited: boolean = false;
 
   constructor(gameWidth: number, gameHeight: number) {
@@ -33,7 +39,8 @@ export class BonusMaze {
     this.gameHeight = gameHeight;
     this.segmentHeight = gameHeight / this.segments;
     this.generateMaze();
-    this.placeLife();
+    this.placeLives(); // Place 10 lives
+    this.placeLasers(); // Place 20 lasers
   }
 
   /**
@@ -132,23 +139,51 @@ export class BonusMaze {
   }
 
   /**
-   * Place the free life somewhere in the maze (not too close to start or end)
+   * Place 10 free lives throughout the maze
    */
-  private placeLife(): void {
-    // Place life in middle segments (not too close to start or end)
-    const lifeSegment = 2 + Math.floor(Math.random() * (this.segments - 4));
-    const lifeY = lifeSegment * this.segmentHeight + this.segmentHeight / 2;
+  private placeLives(): void {
+    this.lives = [];
+    const totalLives = 10;
     
-    // Place it in the center of the path at that segment
-    // We need to calculate where the path is at that segment
-    // For simplicity, place it near center with some variation
-    const lifeX = this.gameWidth / 2 + (Math.random() - 0.5) * (this.pathWidth / 2 - 10);
+    // Distribute lives across different segments
+    for (let i = 0; i < totalLives; i++) {
+      // Place in middle segments (not too close to start or end)
+      const lifeSegment = 1 + Math.floor(Math.random() * (this.segments - 2));
+      const lifeY = lifeSegment * this.segmentHeight + (Math.random() - 0.5) * (this.segmentHeight * 0.6);
+      
+      // Place it in the center of the path at that segment with variation
+      const lifeX = this.gameWidth / 2 + (Math.random() - 0.5) * (this.pathWidth / 2 - 10);
+      
+      this.lives.push({
+        x: lifeX,
+        y: lifeY,
+        collected: false,
+      });
+    }
+  }
+  
+  /**
+   * Place 20 laser pickups throughout the maze
+   */
+  private placeLasers(): void {
+    this.lasers = [];
+    const totalLasers = 20;
     
-    this.life = {
-      x: lifeX,
-      y: lifeY,
-      collected: false,
-    };
+    // Distribute lasers across different segments
+    for (let i = 0; i < totalLasers; i++) {
+      // Place in middle segments (not too close to start or end)
+      const laserSegment = 1 + Math.floor(Math.random() * (this.segments - 2));
+      const laserY = laserSegment * this.segmentHeight + (Math.random() - 0.5) * (this.segmentHeight * 0.6);
+      
+      // Place it in the center of the path at that segment with variation
+      const laserX = this.gameWidth / 2 + (Math.random() - 0.5) * (this.pathWidth / 2 - 10);
+      
+      this.lasers.push({
+        x: laserX,
+        y: laserY,
+        collected: false,
+      });
+    }
   }
 
   /**
@@ -193,23 +228,53 @@ export class BonusMaze {
   }
 
   /**
-   * Check if player collected the life
+   * Check if player collected any lives
+   * Returns the number of lives collected this frame
    */
-  checkLifeCollection(playerX: number, playerY: number, playerWidth: number, playerHeight: number): boolean {
-    if (this.life.collected) return false;
-    
+  checkLifeCollection(playerX: number, playerY: number, playerWidth: number, playerHeight: number): number {
+    let collectedCount = 0;
     const lifeSize = 8; // Size of the life pickup
-    if (
-      playerX < this.life.x + lifeSize &&
-      playerX + playerWidth > this.life.x &&
-      playerY < this.life.y + lifeSize &&
-      playerY + playerHeight > this.life.y
-    ) {
-      this.life.collected = true;
-      this.lifeCollected = true;
-      return true;
+    
+    for (const life of this.lives) {
+      if (life.collected) continue;
+      
+      if (
+        playerX < life.x + lifeSize &&
+        playerX + playerWidth > life.x &&
+        playerY < life.y + lifeSize &&
+        playerY + playerHeight > life.y
+      ) {
+        life.collected = true;
+        collectedCount++;
+      }
     }
-    return false;
+    
+    return collectedCount;
+  }
+  
+  /**
+   * Check if player collected any lasers
+   * Returns the number of lasers collected this frame
+   */
+  checkLaserCollection(playerX: number, playerY: number, playerWidth: number, playerHeight: number): number {
+    let collectedCount = 0;
+    const laserSize = 8; // Size of the laser pickup
+    
+    for (const laser of this.lasers) {
+      if (laser.collected) continue;
+      
+      if (
+        playerX < laser.x + laserSize &&
+        playerX + playerWidth > laser.x &&
+        playerY < laser.y + laserSize &&
+        playerY + playerHeight > laser.y
+      ) {
+        laser.collected = true;
+        collectedCount++;
+      }
+    }
+    
+    return collectedCount;
   }
 
   /**
@@ -232,17 +297,17 @@ export class BonusMaze {
   }
 
   /**
-   * Get life position (if not collected)
+   * Get all uncollected lives
    */
-  getLife(): BonusLife | null {
-    return this.life.collected ? null : this.life;
+  getLives(): BonusLife[] {
+    return this.lives.filter(life => !life.collected);
   }
-
+  
   /**
-   * Check if life was collected
+   * Get all uncollected lasers
    */
-  wasLifeCollected(): boolean {
-    return this.lifeCollected;
+  getLasers(): BonusLaser[] {
+    return this.lasers.filter(laser => !laser.collected);
   }
 
   /**
@@ -256,10 +321,10 @@ export class BonusMaze {
    * Reset maze (generate new one)
    */
   reset(): void {
-    this.lifeCollected = false;
     this.exited = false;
     this.generateMaze();
-    this.placeLife();
+    this.placeLives(); // Place 10 lives
+    this.placeLasers(); // Place 20 lasers
   }
 }
 

@@ -245,3 +245,59 @@ export const EXPLOSION_3: number[][] = [
 
 export const EXPLOSION_FRAMES = [EXPLOSION_1, EXPLOSION_2, EXPLOSION_3];
 
+/**
+ * Brain sprite (8x10 pixels)
+ * Oval-shaped brain with brainstem, flickering animation
+ * Pink/purple color scheme for brain appearance
+ */
+// Frame 1: Normal brain (oval shape with brainstem)
+export const BRAIN_FRAME_1: number[][] = [
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Top point
+  [0, 0, 4, 13, 13, 4, 0, 0],      // Top expanding
+  [0, 4, 13, 4, 4, 13, 4, 0],      // Upper brain (wrinkles)
+  [4, 13, 4, 13, 13, 4, 13, 4],    // Middle brain (wrinkles)
+  [4, 13, 13, 4, 4, 13, 13, 4],    // Lower brain (wrinkles)
+  [0, 4, 13, 13, 13, 13, 4, 0],    // Bottom of brain
+  [0, 0, 4, 13, 13, 4, 0, 0],      // Brainstem top
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Brainstem middle
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Brainstem bottom
+  [0, 0, 0, 0, 0, 0, 0, 0],        // Empty space
+];
+
+// Frame 2: Flickering (brighter)
+export const BRAIN_FRAME_2: number[][] = [
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Top point
+  [0, 0, 4, 7, 7, 4, 0, 0],        // Top expanding (brighter)
+  [0, 4, 7, 13, 13, 7, 4, 0],      // Upper brain (brighter)
+  [4, 7, 13, 4, 4, 13, 7, 4],      // Middle brain (brighter)
+  [4, 13, 4, 7, 7, 4, 13, 4],      // Lower brain (brighter)
+  [0, 4, 13, 7, 7, 13, 4, 0],      // Bottom of brain (brighter)
+  [0, 0, 4, 7, 7, 4, 0, 0],        // Brainstem top (brighter)
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Brainstem middle
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Brainstem bottom
+  [0, 0, 0, 0, 0, 0, 0, 0],        // Empty space
+];
+
+// Frame 3: Flickering (dimmer)
+export const BRAIN_FRAME_3: number[][] = [
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Top point
+  [0, 0, 4, 4, 4, 4, 0, 0],        // Top expanding (dimmer)
+  [0, 4, 4, 13, 13, 4, 4, 0],      // Upper brain (dimmer)
+  [4, 4, 13, 4, 4, 13, 4, 4],      // Middle brain (dimmer)
+  [4, 13, 4, 4, 4, 4, 13, 4],      // Lower brain (dimmer)
+  [0, 4, 13, 4, 4, 13, 4, 0],      // Bottom of brain (dimmer)
+  [0, 0, 4, 4, 4, 4, 0, 0],        // Brainstem top (dimmer)
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Brainstem middle
+  [0, 0, 0, 4, 4, 0, 0, 0],        // Brainstem bottom
+  [0, 0, 0, 0, 0, 0, 0, 0],        // Empty space
+];
+
+// Animation frames array (flickering effect)
+export const BRAIN_FRAMES: number[][][] = [
+  BRAIN_FRAME_1, // Normal
+  BRAIN_FRAME_2, // Bright flicker
+  BRAIN_FRAME_1, // Normal
+  BRAIN_FRAME_3, // Dim flicker
+  BRAIN_FRAME_1, // Normal
+];
+

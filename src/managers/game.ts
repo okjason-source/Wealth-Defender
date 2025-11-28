@@ -8,7 +8,7 @@ import { Palette } from '../graphics/palette';
 import { InputSystem } from '../systems/input';
 import { Player } from '../entities/player';
 import { ProjectileManager, ProjectileType } from '../entities/projectiles';
-import { EnemyManager, EnemyType } from '../entities/enemies';
+import { Enemy, EnemyManager, EnemyType } from '../entities/enemies';
 import { CollisionSystem } from '../systems/collision';
 import { SpawningSystem } from '../systems/spawning';
 import { ParticleSystem } from '../entities/particles';
@@ -83,6 +83,8 @@ export class GameManager {
       this.gameWidth,
       this.gameHeight
     );
+    // Connect enemy manager to player for lightning laser
+    this.player.setEnemyManager(this.enemyManager);
     
     // Load high score from localStorage
     const savedHighScore = localStorage.getItem('round42_highscore');
@@ -256,20 +258,21 @@ export class GameManager {
       if (this.respawnTimer <= 0) {
         // Respawn player with invincibility (at the very bottom center)
         if (!this.player) {
-          this.player = new Player(
-            this.gameWidth / 2 - 4,
-            this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
-            this.input,
-            this.projectileManager,
-            this.gameWidth,
-            this.gameHeight
-          );
-        } else {
-          // Reset player position to bottom center
-          const bounds = this.player.getBounds();
-          this.player.x = this.gameWidth / 2 - bounds.width / 2; // Exact center
-          this.player.y = this.gameHeight - 5; // Bottom of screen
-        }
+      this.player = new Player(
+        this.gameWidth / 2 - 4,
+        this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
+        this.input,
+        this.projectileManager,
+        this.gameWidth,
+        this.gameHeight
+      );
+      this.player.setEnemyManager(this.enemyManager);
+    } else {
+      // Reset player position to bottom center
+      const bounds = this.player.getBounds();
+      this.player.x = this.gameWidth / 2 - bounds.width / 2; // Exact center
+      this.player.y = this.gameHeight - 5; // Bottom of screen
+    }
         this.invincibilityTimer = this.invincibilityDuration;
         this.isRespawning = false;
       }
@@ -447,20 +450,41 @@ export class GameManager {
     }
     
     // Check for life collection (using NEW position)
-    if (this.bonusMaze.checkLifeCollection(
+    const livesCollected = this.bonusMaze.checkLifeCollection(
       updatedBounds.x,
       updatedBounds.y,
       updatedBounds.width,
       updatedBounds.height
-    )) {
-      // Collected free life!
-      this.lives++;
+    );
+    if (livesCollected > 0) {
+      // Collected free lives!
+      this.lives += livesCollected;
       // Create celebration particles
       const center = {
         x: updatedBounds.x + updatedBounds.width / 2,
         y: updatedBounds.y + updatedBounds.height / 2
       };
       this.particleSystem.createConfettiExplosion(center.x, center.y, 16);
+    }
+    
+    // Check for laser collection (using NEW position)
+    const lasersCollected = this.bonusMaze.checkLaserCollection(
+      updatedBounds.x,
+      updatedBounds.y,
+      updatedBounds.width,
+      updatedBounds.height
+    );
+    if (lasersCollected > 0) {
+      // Collected lasers!
+      if (this.player) {
+        this.player.addLasers(lasersCollected);
+        // Create celebration particles
+        const center = {
+          x: updatedBounds.x + updatedBounds.width / 2,
+          y: updatedBounds.y + updatedBounds.height / 2
+        };
+        this.particleSystem.createConfettiExplosion(center.x, center.y, 12);
+      }
     }
     
     // Check for exit (reached top) (using NEW position)
@@ -487,6 +511,8 @@ export class GameManager {
         return 50;
       case EnemyType.HATER:
         return 100;
+      case EnemyType.BRAIN:
+        return 75; // Between diamond and hater
     }
   }
   
@@ -500,14 +526,40 @@ export class GameManager {
         return Palette.SAPPHIRE_BLUE;
       case EnemyType.HATER:
         return Palette.CRIMSON_RED;
+      case EnemyType.BRAIN:
+        return Palette.DEEP_PURPLE; // Purple/pink for brain
       default:
         return Palette.AMBER;
     }
   }
   
-  private getDamageTint(_type: EnemyType): string {
-    // Return a tint color to show damage (reddish tint)
-    return Palette.CRIMSON_RED;
+  private getDamageTint(enemy: Enemy): string | undefined {
+    // Special handling for brains: neon colors that change with each hit
+    if (enemy.type === EnemyType.BRAIN) {
+      const health = enemy.health;
+      // Brains have 5 health, so we have 5 color states
+      switch (health) {
+        case 5:
+          return Palette.NEON_PURPLE;  // Full health - purple
+        case 4:
+          return Palette.NEON_BLUE;    // 4 hits - blue
+        case 3:
+          return Palette.NEON_CYAN;    // 3 hits - cyan
+        case 2:
+          return Palette.NEON_GREEN;   // 2 hits - green
+        case 1:
+          return Palette.NEON_YELLOW;  // 1 hit - yellow (critical)
+        default:
+          return Palette.NEON_PURPLE;
+      }
+    }
+    
+    // For other enemies, show red tint when damaged
+    if (enemy.isDamaged()) {
+      return Palette.CRIMSON_RED;
+    }
+    
+    return undefined;
   }
   
   private handlePlayerHit(): void {
@@ -585,8 +637,8 @@ export class GameManager {
       const enemySprite = enemy.getSprite();
       const bounds = enemy.getBounds();
       
-      // Apply damage tint if enemy is damaged
-      const tint = enemy.isDamaged() ? this.getDamageTint(enemy.type) : undefined;
+      // Apply damage tint - special handling for brains (neon colors based on health)
+      const tint = this.getDamageTint(enemy);
       
       this.renderer.drawSprite(
         enemySprite,
@@ -594,6 +646,22 @@ export class GameManager {
         Math.floor(bounds.y),
         tint
       );
+    }
+    
+    // Draw lightning laser
+    if (this.player) {
+      const laserData = this.player.getLightningLaserData();
+      if (laserData) {
+        for (const target of laserData.targets) {
+          this.renderer.drawLightningLaser(
+            laserData.playerX,
+            laserData.playerY,
+            target.x,
+            target.y,
+            laserData.color
+          );
+        }
+      }
     }
     
     // Draw particles
@@ -671,9 +739,9 @@ export class GameManager {
       );
     }
     
-    // Draw free life (if not collected)
-    const life = this.bonusMaze.getLife();
-    if (life) {
+    // Draw all uncollected lives (10 total)
+    const lives = this.bonusMaze.getLives();
+    for (const life of lives) {
       // Draw a simple life icon (heart or star shape)
       // For now, draw a gold circle
       this.renderer.drawRect(
@@ -697,6 +765,43 @@ export class GameManager {
         6,
         2,
         Palette.RICH_BLACK
+      );
+    }
+    
+    // Draw all uncollected laser pickups (20 total)
+    const lasers = this.bonusMaze.getLasers();
+    for (const laser of lasers) {
+      // Draw a lightning bolt icon (neon colored)
+      const laserColor = Palette.NEON_CYAN;
+      // Draw vertical line
+      this.renderer.drawRect(
+        Math.floor(laser.x - 1),
+        Math.floor(laser.y - 4),
+        2,
+        8,
+        laserColor
+      );
+      // Draw horizontal connectors (lightning effect)
+      this.renderer.drawRect(
+        Math.floor(laser.x - 3),
+        Math.floor(laser.y - 2),
+        2,
+        2,
+        laserColor
+      );
+      this.renderer.drawRect(
+        Math.floor(laser.x + 1),
+        Math.floor(laser.y),
+        2,
+        2,
+        laserColor
+      );
+      this.renderer.drawRect(
+        Math.floor(laser.x - 3),
+        Math.floor(laser.y + 2),
+        2,
+        2,
+        laserColor
       );
     }
     
@@ -885,16 +990,22 @@ export class GameManager {
     // Lives
     this.renderer.drawText(`LIVES: ${this.lives}`, 5, 12, Palette.PLATINUM, 0.5);
     
+    // Lasers
+    if (this.player) {
+      const laserCount = this.player.getLaserCount();
+      this.renderer.drawText(`LASERS: ${laserCount}`, 5, 19, Palette.NEON_CYAN, 0.5);
+    }
+    
     // Round
-    this.renderer.drawText(`ROUND: ${this.round}/42`, 5, 19, Palette.EMERALD_GREEN, 0.5);
+    this.renderer.drawText(`ROUND: ${this.round}/42`, 5, 26, Palette.EMERALD_GREEN, 0.5);
     
     // Enemy count
     const enemyCount = this.enemyManager.getEnemyCount();
-    this.renderer.drawText(`ENEMIES: ${enemyCount}`, 5, 26, Palette.SAPPHIRE_BLUE, 0.5);
+    this.renderer.drawText(`ENEMIES: ${enemyCount}`, 5, 33, Palette.SAPPHIRE_BLUE, 0.5);
     
     // High score (if exists)
     if (this.highScore > 0) {
-      this.renderer.drawText(`HIGH: ${this.highScore}`, 5, 33, Palette.AMBER, 0.4);
+      this.renderer.drawText(`HIGH: ${this.highScore}`, 5, 40, Palette.AMBER, 0.4);
     }
     
     // Bot status

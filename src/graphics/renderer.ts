@@ -94,6 +94,77 @@ export class PixelRenderer {
   }
   
   /**
+   * Draw a lightning laser bolt from player to target
+   * Creates a lightning-like effect with vertical lines connected by horizontal segments
+   */
+  drawLightningLaser(startX: number, startY: number, endX: number, endY: number, color: string): void {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance === 0) return;
+    
+    // Number of segments (more segments = smoother lightning)
+    const segments = Math.max(8, Math.floor(distance / 3));
+    
+    // Create zigzag path (lightning effect)
+    const points: Array<{ x: number; y: number }> = [];
+    points.push({ x: startX, y: startY });
+    
+    // Add intermediate points with random jitter for lightning effect
+    for (let i = 1; i < segments; i++) {
+      const t = i / segments;
+      const baseX = startX + dx * t;
+      const baseY = startY + dy * t;
+      
+      // Perpendicular direction for jitter
+      const perpX = -dy / distance;
+      const perpY = dx / distance;
+      
+      // Random jitter amount (stronger near middle)
+      const jitterAmount = 2 * (1 - Math.abs(t - 0.5) * 2); // Max jitter at middle
+      const jitter = (Math.random() - 0.5) * jitterAmount;
+      
+      points.push({
+        x: baseX + perpX * jitter,
+        y: baseY + perpY * jitter,
+      });
+    }
+    
+    points.push({ x: endX, y: endY });
+    
+    // Draw lightning bolt: vertical lines connected by horizontal segments
+    for (let i = 0; i < points.length - 1; i++) {
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      
+      // Draw vertical segment (main bolt)
+      const segDx = p2.x - p1.x;
+      const segDy = p2.y - p1.y;
+      const segLength = Math.sqrt(segDx * segDx + segDy * segDy);
+      const steps = Math.max(1, Math.floor(segLength));
+      
+      for (let j = 0; j <= steps; j++) {
+        const t = j / steps;
+        const x = Math.round(p1.x + segDx * t);
+        const y = Math.round(p1.y + segDy * t);
+        
+        // Draw main vertical line (2 pixels wide for visibility)
+        this.drawPixel(x, y, color);
+        if (Math.abs(segDx) < Math.abs(segDy)) {
+          // More vertical - draw horizontal connectors
+          this.drawPixel(x - 1, y, color);
+          this.drawPixel(x + 1, y, color);
+        } else {
+          // More horizontal - draw vertical connectors
+          this.drawPixel(x, y - 1, color);
+          this.drawPixel(x, y + 1, color);
+        }
+      }
+    }
+  }
+  
+  /**
    * Draw a particle
    */
   drawParticle(x: number, y: number, color: string, size: number, alpha: number): void {

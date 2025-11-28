@@ -30,6 +30,13 @@ export const Palette = {
   HATER_RED: '#DC143C',
   HATER_PURPLE: '#4B0082',
   
+  // Neon Colors (for Brain enemy damage states)
+  NEON_PURPLE: '#BF00FF',    // Full health (5/5)
+  NEON_BLUE: '#00BFFF',      // 4/5 health
+  NEON_CYAN: '#00FFFF',      // 3/5 health
+  NEON_GREEN: '#39FF14',     // 2/5 health
+  NEON_YELLOW: '#FFFF00',    // 1/5 health (critical)
+  
   // UI Colors
   UI_GOLD: '#FFD700',
   UI_PURPLE: '#4B0082',

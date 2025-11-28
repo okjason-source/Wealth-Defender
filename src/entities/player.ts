@@ -6,6 +6,8 @@
 import { PLAYER_SPRITE } from '../graphics/sprites';
 import { InputSystem } from '../systems/input';
 import { ProjectileManager, ProjectileType } from './projectiles';
+import { Palette } from '../graphics/palette';
+import { Enemy } from './enemies';
 
 export class Player {
   x: number;
@@ -17,6 +19,7 @@ export class Player {
   private projectileManager: ProjectileManager;
   private gameWidth: number;
   private gameHeight: number;
+  private enemyManager?: any; // Will be EnemyManager, set from GameManager
   
   // Smooth movement with acceleration
   private velocityX: number = 0;
@@ -28,8 +31,15 @@ export class Player {
   // Weapon cooldowns
   private autoFireCooldown: number = 0;
   private autoFireRate: number = 3; // Frames between shots (rapid fire - was 8)
-  private laserCooldown: number = 0;
-  private laserRate: number = 30; // Frames between laser shots
+  
+  // Lightning Laser weapon (new system)
+  public laserCount: number = 5; // Start with 5 lasers
+  private lightningLaserActive: boolean = false;
+  private lightningLaserDuration: number = 0;
+  private lightningLaserMaxDuration: number = 10; // Frames the laser is visible
+  private lightningLaserTargets: Array<{ enemy: Enemy; x: number; y: number }> = [];
+  private lightningLaserColor: string = Palette.PURE_WHITE;
+  private lightningLaserRange: number = 80; // Maximum range to hit enemies
   
   constructor(
     x: number,
@@ -134,15 +144,33 @@ export class Player {
     
     // Handle weapons
     this.updateWeapons(deltaTime, botShouldShoot);
+    
+    // Update lightning laser
+    if (this.lightningLaserActive) {
+      this.lightningLaserDuration -= deltaTime / 16.67;
+      if (this.lightningLaserDuration <= 0) {
+        this.lightningLaserActive = false;
+        this.lightningLaserTargets = [];
+      }
+    }
+  }
+  
+  setEnemyManager(enemyManager: any): void {
+    this.enemyManager = enemyManager;
+  }
+  
+  addLasers(count: number): void {
+    this.laserCount += count;
+  }
+  
+  getLaserCount(): number {
+    return this.laserCount;
   }
   
   private updateWeapons(deltaTime: number, botShouldShoot?: boolean): void {
     // Update cooldowns
     if (this.autoFireCooldown > 0) {
       this.autoFireCooldown -= deltaTime / 16.67;
-    }
-    if (this.laserCooldown > 0) {
-      this.laserCooldown -= deltaTime / 16.67;
     }
     
     // Auto-fire cannon (bot or player input)
@@ -152,13 +180,9 @@ export class Player {
       this.autoFireCooldown = this.autoFireRate;
     }
     
-    // Targeting laser (player input only, bot doesn't use laser)
-    if (!botShouldShoot && this.input.isLaserPressed() && this.laserCooldown <= 0) {
-      const mousePos = this.input.getMousePositionInGame(
-        document.getElementById('game-canvas') as HTMLCanvasElement
-      );
-      this.fireLaser(mousePos.x, mousePos.y);
-      this.laserCooldown = this.laserRate;
+    // Lightning laser (replaces old targeting laser) - Z key or mouse click
+    if (!botShouldShoot && this.input.wasKeyJustPressed('z') && this.laserCount > 0 && !this.lightningLaserActive) {
+      this.fireLightningLaser();
     }
   }
   
@@ -177,29 +201,64 @@ export class Player {
     );
   }
   
-  private fireLaser(targetX: number, targetY: number): void {
-    // Fire towards mouse position
-    const startX = this.x + this.width / 2;
-    const startY = this.y;
+  private fireLightningLaser(): void {
+    if (!this.enemyManager || this.laserCount <= 0) return;
     
-    // Calculate direction to target
-    const dx = targetX - startX;
-    const dy = targetY - startY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    // Use one laser
+    this.laserCount--;
     
-    if (distance > 0) {
-      const speed = 6; // Faster than auto-fire
-      const vx = (dx / distance) * speed;
-      const vy = (dy / distance) * speed;
+    // Random neon color or white
+    const colors = [
+      Palette.PURE_WHITE,
+      Palette.NEON_PURPLE,
+      Palette.NEON_BLUE,
+      Palette.NEON_CYAN,
+      Palette.NEON_GREEN,
+      Palette.NEON_YELLOW,
+    ];
+    this.lightningLaserColor = colors[Math.floor(Math.random() * colors.length)];
+    
+    // Find all enemies within range
+    const playerCenterX = this.x + this.width / 2;
+    const playerCenterY = this.y + this.height / 2;
+    const enemies = this.enemyManager.getEnemies();
+    
+    this.lightningLaserTargets = [];
+    for (const enemy of enemies) {
+      const enemyBounds = enemy.getBounds();
+      const enemyCenterX = enemyBounds.x + enemyBounds.width / 2;
+      const enemyCenterY = enemyBounds.y + enemyBounds.height / 2;
       
-      this.projectileManager.createProjectile(
-        startX,
-        startY,
-        vx,
-        vy,
-        ProjectileType.PLAYER
-      );
+      const dx = enemyCenterX - playerCenterX;
+      const dy = enemyCenterY - playerCenterY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance <= this.lightningLaserRange) {
+        this.lightningLaserTargets.push({
+          enemy: enemy,
+          x: enemyCenterX,
+          y: enemyCenterY,
+        });
+        // Destroy enemy with 1 shot
+        enemy.takeDamage(enemy.maxHealth);
+      }
     }
+    
+    // Activate laser visual
+    this.lightningLaserActive = true;
+    this.lightningLaserDuration = this.lightningLaserMaxDuration;
+  }
+  
+  getLightningLaserData(): { active: boolean; targets: Array<{ x: number; y: number }>; color: string; playerX: number; playerY: number } | null {
+    if (!this.lightningLaserActive) return null;
+    
+    return {
+      active: true,
+      targets: this.lightningLaserTargets.map(t => ({ x: t.x, y: t.y })),
+      color: this.lightningLaserColor,
+      playerX: this.x + this.width / 2,
+      playerY: this.y + this.height / 2,
+    };
   }
   
   getSprite(): number[][] {
