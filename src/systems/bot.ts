@@ -24,7 +24,7 @@ export class BotAI {
   private reactionSpeed: number = 1.5; // Multiplier for decision making (higher = faster) - START HIGHER
   private avoidanceSkill: number = 1.4; // How well it avoids threats (higher = better) - START HIGHER
   private positioningSkill: number = 1.4; // How well it positions for shooting (higher = better) - START HIGHER
-  private aggressionLevel: number = 0.6; // How aggressively it pursues enemies (0-1) - START HIGHER
+  private aggressionLevel: number = 0.6; // How aggressively it targets/shoots enemies (0-1) - NOT about moving closer
   
   // Fast learning mode - dramatically increases learning rates
   private fastLearningMode: boolean = true; // Enable fast learning by default
@@ -32,6 +32,13 @@ export class BotAI {
   
   // Performance tracking
   private lastGameRound: number = 0;
+  
+  // Patrol/evasion behavior - constant horizontal movement
+  private patrolDirection: number = 1; // 1 = right, -1 = left
+  private lastPatrolChange: number = 0;
+  private patrolChangeInterval: number = 120; // Change direction every 120 frames (2 seconds at 60fps)
+  private lastMoveX: number = 0; // Remember last movement to continue between decisions
+  private lastMoveY: number = 0;
   
   constructor() {
     this.loadLearningData();
@@ -201,6 +208,7 @@ export class BotAI {
     this.positioningSkill = Math.max(1.0, Math.min(2.0, this.positioningSkill + amount * 0.12));
     
     // Adjust aggression based on performance
+    // Aggression = better target prioritization and faster alignment, NOT moving closer
     if (this.lastGameRound > 5) {
       this.aggressionLevel = Math.max(0.3, Math.min(0.9, this.aggressionLevel + amount * 0.05));
     } else {
@@ -235,7 +243,8 @@ export class BotAI {
     const adjustedInterval = Math.max(1, this.decisionInterval / this.reactionSpeed);
     if (frameCount - this.lastDecisionTime < adjustedInterval) {
       // Even between decisions, continue last movement and keep shooting
-      return { moveX: 0, moveY: 0, shouldShoot: true }; // Keep shooting
+      // This ensures constant movement even when making decisions frequently
+      return { moveX: this.lastMoveX, moveY: this.lastMoveY, shouldShoot: true };
     }
     
     this.lastDecisionTime = frameCount;
@@ -244,10 +253,25 @@ export class BotAI {
     const playerCenterX = playerBounds.x + playerBounds.width / 2;
     const playerCenterY = playerBounds.y + playerBounds.height / 2;
     
-    // Strategy: Avoid enemy projectiles, position to shoot enemies
+    // Strategy: Stay in bottom half, constantly evade horizontally, position below enemies for shooting
     let moveX = 0;
     let moveY = 0;
     let shouldShoot = true;
+    
+    // Define bottom half constraint (stay below this Y position)
+    const bottomHalfY = gameHeight / 2; // 75 pixels for 150 height game
+    const preferredBottomY = gameHeight * 0.92; // Prefer staying at the very bottom (along the base)
+    
+    // Update patrol direction periodically for constant horizontal evasion
+    if (frameCount - this.lastPatrolChange > this.patrolChangeInterval) {
+      // Randomly change direction or reverse if near edge
+      if (playerCenterX < gameWidth * 0.2 || playerCenterX > gameWidth * 0.8) {
+        this.patrolDirection *= -1; // Reverse direction near edges
+      } else if (Math.random() < 0.3) {
+        this.patrolDirection *= -1; // 30% chance to randomly reverse
+      }
+      this.lastPatrolChange = frameCount;
+    }
     
     // Find nearest enemy projectile threat (better detection with improved avoidance)
     let nearestThreat: Projectile | null = null;
@@ -321,43 +345,61 @@ export class BotAI {
       const dy = playerCenterY - threatY;
       const distance = Math.sqrt(dx * dx + dy * dy);
       
-      // Better movement: move perpendicular to threat trajectory (uses all directions)
+      // Better movement: prioritize horizontal evasion (left/right movement)
       const threatVx = nearestThreat.vx;
       const threatVy = nearestThreat.vy;
       
-      // Calculate perpendicular escape direction (full 2D movement)
+      // Calculate perpendicular escape direction (prioritize horizontal)
       const escapeX = -threatVy; // Perpendicular to threat velocity
       const escapeY = threatVx;
       const escapeLength = Math.sqrt(escapeX * escapeX + escapeY * escapeY);
       
       if (escapeLength > 0) {
-        // Normalize and scale by avoidance skill (uses both X and Y)
-        moveX = (escapeX / escapeLength) * this.avoidanceSkill;
-        moveY = (escapeY / escapeLength) * this.avoidanceSkill;
+        // Prioritize horizontal movement (left/right evasion is safer)
+        // Scale horizontal movement more than vertical
+        moveX = (escapeX / escapeLength) * this.avoidanceSkill * 1.5; // 1.5x horizontal priority
+        moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.6; // Reduced vertical movement
         
-        // Also add component away from threat (diagonal escape)
-        moveX += (dx / distance) * 0.5 * this.avoidanceSkill;
-        moveY += (dy / distance) * 0.5 * this.avoidanceSkill;
+        // Also add component away from threat (prioritize horizontal escape)
+        moveX += (dx / distance) * 0.7 * this.avoidanceSkill; // Strong horizontal component
+        moveY += (dy / distance) * 0.3 * this.avoidanceSkill; // Weaker vertical component
         
         // Clamp movement (ensures full directional range)
         moveX = Math.max(-1, Math.min(1, moveX));
         moveY = Math.max(-1, Math.min(1, moveY));
       } else {
-        // Fallback: move away from threat in best direction (all directions available)
+        // Fallback: prioritize horizontal escape
         const escapeDistance = Math.sqrt(dx * dx + dy * dy);
         if (escapeDistance > 0) {
-          // Move directly away (can be diagonal)
-          moveX = (dx / escapeDistance) * this.avoidanceSkill;
-          moveY = (dy / escapeDistance) * this.avoidanceSkill;
+          // Move away, but prioritize horizontal
+          moveX = (dx / escapeDistance) * this.avoidanceSkill * 1.2;
+          moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.5;
         } else {
-          // Last resort: prefer horizontal but can go vertical
+          // Last resort: strong horizontal movement
           moveX = dx > 0 ? 1 : -1;
-          moveY = dy > 0 ? 1 : -1;
+          moveY = 0; // No vertical movement as last resort
         }
       }
+      
+      // Allow upward evasion when evading projectiles (but return to base after)
+      // Don't force downward - allow rapid upward movement for evasion
+      // The return-to-base logic will handle getting back down
     } else {
-      // No immediate threat - position to shoot enemies (better positioning with skill)
-      if (enemies.length > 0) {
+      // No immediate threat - position to shoot enemies while maintaining bottom half
+      // Add constant horizontal patrol for evasion even when no threats
+      if (enemies.length === 0) {
+        // No enemies - AGGRESSIVE: long fast horizontal sweeps along the base
+        const sweepSpeed = 1.0 + (this.aggressionLevel * 0.5); // 1.0 to 1.5x speed
+        moveX = this.patrolDirection * sweepSpeed * this.avoidanceSkill;
+        
+        // Return to base if above it
+        if (playerCenterY < preferredBottomY) {
+          const returnSpeed = 0.7 + (this.aggressionLevel * 0.3); // Faster return with aggression
+          moveY = returnSpeed * this.positioningSkill; // Move down to base
+        } else {
+          moveY = 0.2 * this.positioningSkill; // Stay at base
+        }
+      } else if (enemies.length > 0) {
         // First, check for enemies that are too close (collision risk)
         let nearestEnemy: Enemy | null = null;
         let nearestEnemyDistance = Infinity;
@@ -379,6 +421,7 @@ export class BotAI {
         }
         
         // If enemy is too close, prioritize avoiding collision
+        // AGGRESSIVE EVASION: Allow rapid upward movement if enemy is descending
         if (nearestEnemy && nearestEnemyDistance < collisionThreshold) {
           const enemyBounds = nearestEnemy.getBounds();
           const enemyX = enemyBounds.x + enemyBounds.width / 2;
@@ -388,16 +431,34 @@ export class BotAI {
           const dy = playerCenterY - enemyY;
           const distance = Math.sqrt(dx * dx + dy * dy);
           
+          // Check if enemy is descending (moving down toward player)
+          // Enemy is above player (enemyY < playerY) and moving down (vy > 0)
+          const enemyVy = nearestEnemy.vy || 0.1; // Default downward movement
+          const isEnemyDescending = enemyY < playerCenterY && enemyVy > 0;
+          const isEnemyCloseAbove = enemyY < playerCenterY && Math.abs(dx) < 15;
+          
           if (distance > 0) {
-            // Move away from enemy to avoid collision
-            moveX = (dx / distance) * this.avoidanceSkill;
-            moveY = (dy / distance) * this.avoidanceSkill;
-            
-            // Prefer horizontal escape if possible
-            if (Math.abs(dx) > Math.abs(dy)) {
-              moveY *= 0.5; // Reduce vertical movement
+            if (isEnemyDescending && isEnemyCloseAbove && distance < 30) {
+              // RAPID UPWARD EVASION: Enemy descending directly above - move up quickly!
+              // Aggression makes this faster
+              const evasionSpeed = 1.5 + (this.aggressionLevel * 0.5); // 1.5 to 2.0 speed
+              moveX = (dx > 0 ? 1 : -1) * evasionSpeed * this.avoidanceSkill; // Horizontal escape
+              moveY = -evasionSpeed * this.avoidanceSkill; // Rapid upward movement
+              
+              // Also move horizontally away from enemy
+              if (Math.abs(dx) > 3) {
+                moveX = (dx / Math.abs(dx)) * evasionSpeed * this.avoidanceSkill;
+              }
             } else {
-              moveX *= 0.5; // Reduce horizontal movement
+              // Normal evasion - prioritize horizontal escape
+              const evasionSpeed = 1.2 + (this.aggressionLevel * 0.3); // Faster with aggression
+              moveX = (dx / distance) * this.avoidanceSkill * evasionSpeed; // Strong horizontal escape
+              moveY = (dy / distance) * this.avoidanceSkill * 0.4; // Reduced vertical movement
+              
+              // Always prefer horizontal escape
+              if (Math.abs(dx) > 5) {
+                moveY *= 0.3; // Further reduce vertical if we can escape horizontally
+              }
             }
           }
         } else {
@@ -414,17 +475,27 @@ export class BotAI {
             const dy = enemyY - playerCenterY;
             const distance = Math.sqrt(dx * dx + dy * dy);
             
-            // Score targets: prefer closer enemies, enemies in front, and aligned enemies
-            // But penalize enemies that are TOO close (collision risk)
-            let score = 100 / (distance + 1); // Closer is better
+            // Score targets: prefer enemies ABOVE player (so we can shoot up at them)
+            // Prioritize horizontal alignment and enemies in upper half
+            let score = 100 / (distance + 1); // Closer is better (but not too close)
             if (distance < collisionThreshold) {
-              score -= 50; // Heavy penalty for enemies too close
+              score -= 100; // Heavy penalty for enemies too close - never approach!
             }
-            if (dy > 0) score += 20; // Prefer enemies below player (in front)
-            if (Math.abs(dx) < 20) score += 30; // Prefer enemies aligned horizontally
-            if (enemyY > playerCenterY + 10) score += 15; // Prefer enemies ahead
-            // Also consider vertical alignment (can move up/down to align)
-            if (Math.abs(dy) < 15) score += 15; // Prefer enemies at similar vertical level
+            
+            // FIXED: Prefer enemies ABOVE player (enemyY < playerY means enemy is above)
+            // Player should be BELOW enemies to shoot up at them
+            if (dy < 0) score += 40; // BIG bonus for enemies above player (dy < 0 means enemy above)
+            if (enemyY < playerCenterY) score += 30; // Prefer enemies above player (enemyY < playerY)
+            
+            // Prioritize horizontal alignment (left/right alignment)
+            if (Math.abs(dx) < 15) score += 50; // BIG bonus for horizontal alignment (can shoot straight up)
+            if (Math.abs(dx) < 30) score += 20; // Medium bonus for near alignment
+            
+            // Prefer enemies in upper half of screen (where they spawn)
+            if (enemyY < bottomHalfY) score += 15; // Bonus for enemies in upper half
+            
+            // Penalize enemies that are too close vertically (collision risk)
+            if (Math.abs(dy) < 20) score -= 20; // Penalty for enemies at similar vertical level (too close)
             
             // With better positioning skill, prefer enemies that are easier to hit
             if (this.positioningSkill > 1.5) {
@@ -460,67 +531,131 @@ export class BotAI {
           const enemyX = enemyBounds.x + enemyBounds.width / 2;
           const enemyY = enemyBounds.y + enemyBounds.height / 2;
           
-          // Improved positioning (better with skill) - uses all directions
+          // Positioning: align horizontally below enemy, stay in bottom half
           const dx = enemyX - playerCenterX;
-          const dy = enemyY - playerCenterY;
-          
-          // Move toward optimal shooting position (can move in all directions)
-          const optimalDistance = 40; // Optimal distance for shooting
+          const dy = enemyY - playerCenterY; // Negative if enemy is above player (good!)
           const currentDistance = Math.sqrt(dx * dx + dy * dy);
           
-          if (currentDistance > optimalDistance) {
-            // Move toward enemy in both X and Y (full directional movement)
-            if (Math.abs(dx) > 3) {
-              moveX = (dx > 0 ? 1 : -1) * this.positioningSkill;
-            }
-            // Use vertical movement more effectively
-            if (Math.abs(dy) > 3) {
-              // Move up if enemy is above, down if enemy is below
-              moveY = (dy > 0 ? 1 : -1) * this.positioningSkill * 0.8; // Slightly prefer horizontal
-            }
+          // Safe distance - NEVER approach closer than this
+          const safeDistance = 35; // Minimum safe distance from enemies
+          
+          // PRIORITY 1: Horizontal alignment (left/right positioning)
+          // AGGRESSIVE MOVEMENT: Faster/longer movements based on aggression
+          const baseMovementSpeed = this.positioningSkill;
+          const aggressiveMultiplier = 1.0 + (this.aggressionLevel * 0.6); // 1.0 to 1.6x speed
+          
+          if (Math.abs(dx) > 2) {
+            // Move horizontally to align with enemy - AGGRESSIVE: rapid long moves
+            moveX = (dx > 0 ? 1 : -1) * baseMovementSpeed * aggressiveMultiplier;
+            // Add patrol component even when aligning (ensures constant movement)
+            moveX += this.patrolDirection * 0.4 * this.avoidanceSkill * aggressiveMultiplier;
           } else {
-            // Maintain optimal distance (better micro-positioning with skill)
-            if (Math.abs(dx) > 2) {
-              moveX = (dx > 0 ? 0.5 : -0.5) * this.positioningSkill;
-            }
-            // Fine-tune vertical position too
-            if (Math.abs(dy) > 5) {
-              moveY = (dy > 0 ? 0.3 : -0.3) * this.positioningSkill;
+            // Already aligned - AGGRESSIVE: long fast horizontal sweeps
+            const sweepSpeed = 1.2 + (this.aggressionLevel * 0.5); // 1.2 to 1.7x speed
+            moveX = this.patrolDirection * sweepSpeed * this.avoidanceSkill;
+          }
+          
+          // PRIORITY 2: Return to base after evading OR stay at base
+          // If we're above base (evaded upward), quickly return
+          // If at base, maintain position
+          if (playerCenterY < preferredBottomY) {
+            // Above base - RAPID RETURN: move down quickly (aggressive return)
+            const returnSpeed = 0.8 + (this.aggressionLevel * 0.4); // 0.8 to 1.2x speed
+            moveY = returnSpeed * this.positioningSkill; // Fast downward movement to reach base
+          } else {
+            // At or near the base - maintain position at bottom
+            moveY = 0.2 * this.positioningSkill; // Slight downward bias to stay at base
+          }
+          
+          // PRIORITY 3: Maintain safe distance - AGGRESSIVE EVASION
+          // Check if enemy is descending and close
+          const enemyVy = bestTarget.vy || 0.1; // Enemy vertical velocity (positive = descending)
+          const isEnemyDescending = enemyY < playerCenterY && enemyVy > 0; // Enemy above and moving down
+          const isEnemyCloseAbove = enemyY < playerCenterY && Math.abs(dx) < 20; // Enemy directly above
+          
+          if (currentDistance < safeDistance) {
+            // Too close! RAPID EVASION
+            const escapeDx = playerCenterX - enemyX;
+            const escapeDy = playerCenterY - enemyY;
+            const escapeDist = Math.sqrt(escapeDx * escapeDx + escapeDy * escapeDy);
+            
+            if (escapeDist > 0) {
+              if (isEnemyDescending && isEnemyCloseAbove) {
+                // Enemy descending above - RAPID UPWARD EVASION
+                const evasionSpeed = 1.6 + (this.aggressionLevel * 0.4); // 1.6 to 2.0x speed
+                moveX = (escapeDx / escapeDist) * evasionSpeed * this.avoidanceSkill;
+                moveY = -evasionSpeed * this.avoidanceSkill; // Rapid upward
+              } else {
+                // Normal escape - strong horizontal, minimal vertical
+                const escapeSpeed = 1.5 + (this.aggressionLevel * 0.3); // Faster with aggression
+                moveX = (escapeDx / escapeDist) * escapeSpeed * this.avoidanceSkill;
+                moveY = (escapeDy / escapeDist) * 0.3 * this.avoidanceSkill;
+              }
             }
           }
           
-          // Aggressive positioning: get closer if skill allows (all directions)
-          // BUT maintain safe distance to avoid collisions
-          const safeDistance = 30; // Minimum safe distance from enemies
-          if (this.aggressionLevel > 0.7 && currentDistance > safeDistance) {
-            // Only get aggressive if we're not too close
-            moveX = (dx > 0 ? 1 : -1) * this.aggressionLevel;
-            // Also move vertically when being aggressive
-            if (Math.abs(dy) > 10) {
-              moveY = (dy > 0 ? 0.7 : -0.7) * this.aggressionLevel;
-            }
-          } else if (currentDistance < safeDistance) {
-            // If too close, back away even if aggressive
-            moveX = (dx < 0 ? 1 : -1) * 0.8; // Move away
-            if (Math.abs(dy) > 5) {
-              moveY = (dy < 0 ? 0.6 : -0.6); // Move away vertically too
-            }
+          // Aggression now means: faster target acquisition and better target prioritization
+          // NOT moving closer - that's handled above with safe distance
+          // Aggression is already reflected in shooting (shouldShoot = true) and faster alignment
+        } else {
+          // No good target - AGGRESSIVE: long fast horizontal sweeps
+          const sweepSpeed = 1.0 + (this.aggressionLevel * 0.5); // 1.0 to 1.5x speed
+          moveX = this.patrolDirection * sweepSpeed * this.avoidanceSkill;
+          
+          // Return to base if above it (after evading)
+          if (playerCenterY < preferredBottomY) {
+            const returnSpeed = 0.7 + (this.aggressionLevel * 0.3); // Faster return with aggression
+            moveY = returnSpeed * this.positioningSkill; // Move down to base
+          } else {
+            moveY = 0.2 * this.positioningSkill; // Stay at base
           }
         }
         }
       }
     }
     
+    // Allow upward movement for evasion, but prefer staying in bottom half
+    // Only prevent going too high if not actively evading
+    const newY = playerBounds.y + moveY * player.speed;
+    // Allow upward movement if moving up (evading), but encourage return to base
+    if (newY + playerBounds.height / 2 < bottomHalfY && moveY >= 0) {
+      // Not actively evading upward - encourage staying in bottom half
+      // But don't force - allow upward evasion when needed
+    }
+    
     // Keep player in bounds
     const newX = playerBounds.x + moveX * player.speed;
-    const newY = playerBounds.y + moveY * player.speed;
     
     if (newX < 0 || newX + playerBounds.width > gameWidth) {
       moveX = 0;
+      // Reverse patrol direction when hitting edge
+      this.patrolDirection *= -1;
+      this.lastPatrolChange = frameCount;
     }
-    if (newY < 0 || newY + playerBounds.height > gameHeight) {
+    
+    // Ensure we don't go below screen or above bottom half
+    const finalY = playerBounds.y + moveY * player.speed;
+    if (finalY < 0) {
       moveY = 0;
     }
+    if (finalY + playerBounds.height > gameHeight) {
+      moveY = 0;
+    }
+    
+    // Final check: if somehow above bottom half, force down
+    if (playerCenterY < bottomHalfY) {
+      moveY = Math.max(0.4, moveY || 0.4);
+    }
+    
+    // Ensure minimum movement - bot should NEVER be completely still
+    // Even when perfectly positioned, maintain constant horizontal patrol
+    if (Math.abs(moveX) < 0.3) {
+      moveX = this.patrolDirection * 0.8 * this.avoidanceSkill;
+    }
+    
+    // Store movement for continuation between decision frames
+    this.lastMoveX = moveX;
+    this.lastMoveY = moveY;
     
     return { moveX, moveY, shouldShoot };
   }
