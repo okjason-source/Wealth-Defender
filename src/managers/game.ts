@@ -53,6 +53,8 @@ export class GameManager {
   private respawnDelay: number = 30; // Frames to show explosion before respawning
   private isRespawning: boolean = false;
   private isGameOver: boolean = false;
+  private gameOverTimer: number = 0; // Timer before allowing restart (5 seconds = 300 frames at 60fps)
+  private gameOverDelay: number = 300; // 5 seconds at 60fps
   private highScore: number = 0;
   private isBonusRound: boolean = false;
   private bonusRoundComplete: boolean = false;
@@ -169,8 +171,8 @@ export class GameManager {
     }
     
     if (this.isBonusRound) {
-      // Initialize bonus maze
-      this.bonusMaze = new BonusMaze(this.gameWidth, this.gameHeight);
+      // Initialize bonus maze (pass round number for item scaling)
+      this.bonusMaze = new BonusMaze(this.gameWidth, this.gameHeight, this.round);
       // Give player brief invincibility at start of bonus round
       this.invincibilityTimer = 30; // Half second of invincibility
     } else {
@@ -233,22 +235,28 @@ export class GameManager {
     
     // Handle game over state
     if (this.isGameOver) {
-      // Bot automatically restarts if active
-      if (this.botAI.isBotActive()) {
-        // Small delay before auto-restart
-        if (this.frameCount % 60 === 0) {
-          this.restartGame();
-        }
-        return;
+      // Count down game over timer
+      if (this.gameOverTimer > 0) {
+        this.gameOverTimer--;
       }
       
-      // Check for restart input (space, enter, or r)
-      // Note: input system stores keys as lowercase, so 'Enter' becomes 'enter'
-      if (this.input.isKeyPressed(' ') || 
-          this.input.isKeyPressed('enter') ||
-          this.input.isKeyPressed('r')) {
-        this.restartGame();
-        return;
+      // Only allow restart after timer expires (5 seconds)
+      if (this.gameOverTimer <= 0) {
+        // Bot automatically restarts after 5 seconds
+        if (this.botAI.isBotActive()) {
+          this.restartGame();
+          return;
+        }
+        
+        // Players can restart after 5 seconds
+        // Check for restart input (space, enter, or r)
+        // Note: input system stores keys as lowercase, so 'Enter' becomes 'enter'
+        if (this.input.isKeyPressed(' ') || 
+            this.input.isKeyPressed('enter') ||
+            this.input.isKeyPressed('r')) {
+          this.restartGame();
+          return;
+        }
       }
       return; // Don't update game logic during game over
     }
@@ -612,16 +620,14 @@ export class GameManager {
     // Special handling for brains: neon colors that change with each hit
     if (enemy.type === EnemyType.BRAIN) {
       const health = enemy.health;
-      // Brains have 5 health, so we have 5 color states
+      // Brains have 4 health, so we have 4 color states
       switch (health) {
-        case 5:
-          return Palette.NEON_PURPLE;  // Full health - purple
         case 4:
-          return Palette.NEON_BLUE;    // 4 hits - blue
+          return Palette.NEON_PURPLE;  // Full health - purple
         case 3:
-          return Palette.NEON_CYAN;    // 3 hits - cyan
+          return Palette.NEON_BLUE;    // 3 hits - blue
         case 2:
-          return Palette.NEON_GREEN;   // 2 hits - green
+          return Palette.NEON_CYAN;    // 2 hits - cyan
         case 1:
           return Palette.NEON_YELLOW;  // 1 hit - yellow (critical)
         default:
@@ -949,6 +955,7 @@ export class GameManager {
   
   private handleGameOver(): void {
     this.isGameOver = true;
+    this.gameOverTimer = this.gameOverDelay; // Start 5-second countdown
     
     // Update high score if current score is higher
     if (this.score > this.highScore) {
@@ -958,7 +965,9 @@ export class GameManager {
     
     // Notify bot of game end for learning
     if (this.botAI.isBotActive()) {
-      this.botAI.onGameEnd(this.score, this.round);
+      // Get final laser count if player still exists
+      const finalLaserCount = this.player ? this.player.getLaserCount() : 0;
+      this.botAI.onGameEnd(this.score, this.round, this.lives, finalLaserCount);
     }
     
     // Don't stop the game loop - we need to keep running to check for restart input
@@ -971,6 +980,7 @@ export class GameManager {
     this.lives = 3;
     this.round = 1;
     this.isGameOver = false;
+    this.gameOverTimer = 0; // Reset game over timer
     this.isInRoundTransition = false;
     this.isRespawning = false;
     this.isPaused = false; // Reset pause state
@@ -1051,15 +1061,17 @@ export class GameManager {
       );
     }
     
-    // Draw restart instruction (center aligned)
-    this.renderer.drawText(
-      'PRESS SPACE/ENTER/R TO RESTART',
-      this.gameWidth / 2,
-      this.gameHeight / 2 + 25,
-      Palette.PLATINUM,
-      0.6,
-      'center'
-    );
+    // Draw restart instruction (center aligned) - only show after 5 seconds
+    if (this.gameOverTimer <= 0) {
+      this.renderer.drawText(
+        'PRESS SPACE/ENTER/R TO RESTART',
+        this.gameWidth / 2,
+        this.gameHeight / 2 + 25,
+        Palette.PLATINUM,
+        0.6,
+        'center'
+      );
+    }
   }
   
   private drawPauseScreen(): void {

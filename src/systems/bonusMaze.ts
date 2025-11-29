@@ -24,8 +24,8 @@ export interface BonusLaser {
 
 export class BonusMaze {
   private walls: MazeWall[] = [];
-  private lives: BonusLife[] = []; // Array of life pickups (10 total)
-  private lasers: BonusLaser[] = []; // Array of laser pickups (10 total)
+  private lives: BonusLife[] = []; // Array of life pickups (10 before round 28, 15 after)
+  private lasers: BonusLaser[] = []; // Array of laser pickups (10 before round 28, 15 after)
   private gameWidth: number;
   private gameHeight: number; // Used in placeLife and checkExit
   private pathWidth: number = 45; // Width of the path through the maze (increased for easier navigation)
@@ -33,14 +33,16 @@ export class BonusMaze {
   private segmentHeight: number;
   private playerAutoSpeed: number = 0.5; // Automatic forward movement speed
   private exited: boolean = false;
+  private round: number = 1; // Track current round for item scaling
 
-  constructor(gameWidth: number, gameHeight: number) {
+  constructor(gameWidth: number, gameHeight: number, round: number = 1) {
     this.gameWidth = gameWidth;
     this.gameHeight = gameHeight;
+    this.round = round;
     this.segmentHeight = gameHeight / this.segments;
     this.generateMaze();
-    this.placeLives(); // Place 10 lives
-    this.placeLasers(); // Place 10 lasers
+    this.placeLives(); // Place lives (more after round 28)
+    this.placeLasers(); // Place lasers (more after round 28)
   }
 
   /**
@@ -139,12 +141,32 @@ export class BonusMaze {
   }
 
   /**
-   * Place 10 free lives throughout the maze
+   * Check if a position overlaps with any wall
+   */
+  private checkWallOverlap(x: number, y: number, size: number = 8): boolean {
+    for (const wall of this.walls) {
+      if (
+        x < wall.x + wall.width &&
+        x + size > wall.x &&
+        y < wall.y + wall.height &&
+        y + size > wall.y
+      ) {
+        return true; // Overlaps with wall
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Place free lives throughout the maze
    * Positioned on left side - player must choose between life and laser
+   * More lives after round 28 (15 lives instead of 10)
    */
   private placeLives(): void {
     this.lives = [];
-    const totalLives = 10;
+    // Increase lives after round 28: 10 lives before, 15 lives after
+    const totalLives = this.round >= 28 ? 15 : 10;
+    const itemSize = 8;
     
     // Place lives in segments 1-7 (spread out across more segments)
     for (let i = 0; i < totalLives; i++) {
@@ -152,11 +174,23 @@ export class BonusMaze {
       const segmentIndex = 1 + (i % 7); // Segments 1-7, cycling if needed
       const lifeY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
-      // Place lives on the LEFT side of the path
+      // Place lives on the LEFT side of the path, but further from the wall
       // Path center is gameWidth/2 (100), path width is 45
       // Left edge of path is at 100 - 22.5 = 77.5
-      // Place pickups 8-16 pixels from left edge of path
-      const lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 8 + Math.random() * 8;
+      // Place pickups 12-20 pixels from left edge of path (increased from 8-16 to avoid walls)
+      let lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 12 + Math.random() * 8;
+      
+      // Try multiple positions to avoid wall overlap
+      let attempts = 0;
+      while (this.checkWallOverlap(lifeX, lifeY, itemSize) && attempts < 10) {
+        lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 12 + Math.random() * 8;
+        attempts++;
+      }
+      
+      // If still overlapping after attempts, move it more towards center
+      if (this.checkWallOverlap(lifeX, lifeY, itemSize)) {
+        lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 16; // Force position more towards center
+      }
       
       this.lives.push({
         x: lifeX,
@@ -167,12 +201,15 @@ export class BonusMaze {
   }
   
   /**
-   * Place 10 laser pickups throughout the maze
+   * Place laser pickups throughout the maze
    * Positioned on right side - player must choose between life and laser
+   * More lasers after round 28 (15 lasers instead of 10)
    */
   private placeLasers(): void {
     this.lasers = [];
-    const totalLasers = 10;
+    // Increase lasers after round 28: 10 lasers before, 15 lasers after
+    const totalLasers = this.round >= 28 ? 15 : 10;
+    const itemSize = 8;
     
     // Place lasers in segments 1-7 (spread out across more segments)
     for (let i = 0; i < totalLasers; i++) {
@@ -180,11 +217,23 @@ export class BonusMaze {
       const segmentIndex = 1 + (i % 7); // Segments 1-7, cycling if needed
       const laserY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
-      // Place lasers on the RIGHT side of the path
+      // Place lasers on the RIGHT side of the path, but further from the wall
       // Path center is gameWidth/2 (100), path width is 45
       // Right edge of path is at 100 + 22.5 = 122.5
-      // Place pickups 8-16 pixels from right edge of path
-      const laserX = this.gameWidth / 2 + this.pathWidth / 2 - 16 - Math.random() * 8;
+      // Place pickups 12-20 pixels from right edge of path (increased from 8-16 to avoid walls)
+      let laserX = this.gameWidth / 2 + this.pathWidth / 2 - 20 - Math.random() * 8;
+      
+      // Try multiple positions to avoid wall overlap
+      let attempts = 0;
+      while (this.checkWallOverlap(laserX, laserY, itemSize) && attempts < 10) {
+        laserX = this.gameWidth / 2 + this.pathWidth / 2 - 20 - Math.random() * 8;
+        attempts++;
+      }
+      
+      // If still overlapping after attempts, move it more towards center
+      if (this.checkWallOverlap(laserX, laserY, itemSize)) {
+        laserX = this.gameWidth / 2 + this.pathWidth / 2 - 16; // Force position more towards center
+      }
       
       this.lasers.push({
         x: laserX,
@@ -328,11 +377,12 @@ export class BonusMaze {
   /**
    * Reset maze (generate new one)
    */
-  reset(): void {
+  reset(round: number = 1): void {
     this.exited = false;
+    this.round = round;
     this.generateMaze();
-    this.placeLives(); // Place 10 lives
-    this.placeLasers(); // Place 10 lasers
+    this.placeLives(); // Place lives (more after round 28)
+    this.placeLasers(); // Place lasers (more after round 28)
   }
 }
 

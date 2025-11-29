@@ -15,7 +15,7 @@ export class EnemyLine {
   private gameWidth: number;
   private gameHeight: number;
   private enemySpacing: number = 18;
-  private direction: number = 1; // 1 = right, -1 = left
+  private direction: number = 1; // 1 = right, -1 = left (will be randomized for bouncing enemies)
   private enemyType: EnemyType; // Store enemy type for special behaviors
   private rowHeight: number = 20; // Height between rows for hater wrap-around
   private brainBaseY: number = -1; // Base Y position for brain wave pattern (initialized to -1 to detect if not set)
@@ -149,6 +149,13 @@ export class EnemyLine {
     this.x = startX;
     this.enemySpacing = spacing;
     // brainBaseY is already set above in constructor
+    
+    // Randomize starting direction for bouncing enemies (COIN, DOLLAR_BILL, DIAMOND)
+    // This prevents enemies from always favoring the right side
+    // BRAIN and HATER always move right (by design), so don't randomize those
+    if (enemyType !== EnemyType.BRAIN && enemyType !== EnemyType.HATER) {
+      this.direction = Math.random() < 0.5 ? -1 : 1; // 50/50 chance to start left or right
+    }
   }
   
   update(deltaTime: number, playerX?: number, playerY?: number): void {

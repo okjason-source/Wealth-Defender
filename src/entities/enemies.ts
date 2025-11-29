@@ -141,8 +141,8 @@ export class Enemy {
         // Brain is 8x10 pixels (oval shape with brainstem)
         this.width = BRAIN_FRAMES[0][0].length;
         this.height = BRAIN_FRAMES[0].length;
-        this.health = 5; // Unique: 5 hits to destroy (because they descend slower)
-        this.maxHealth = 5;
+        this.health = 4; // Unique: 4 hits to destroy (because they descend slower)
+        this.maxHealth = 4;
         // Randomize starting animation frame for variety
         this.animationFrame = Math.floor(Math.random() * BRAIN_FRAMES.length);
         // Progressive shooting: Cycle 1 = 30%, Cycle 2 = 32%, ... Cycle 9 = 46%

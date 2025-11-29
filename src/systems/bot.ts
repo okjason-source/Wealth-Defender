@@ -39,6 +39,23 @@ export class BotAI {
   // Performance tracking
   private lastGameRound: number = 0;
   
+  // Game state tracking for learning
+  private lasersUsedThisGame: number = 0; // Track how many lasers were used
+  private lasersAvailableAtStart: number = 5; // Track starting laser count
+  private maxEnemyCountThisGame: number = 0; // Track peak enemy density
+  private averageEnemyCountThisGame: number = 0; // Track average enemy density
+  private enemyCountSamples: number = 0; // Number of samples for average
+  private totalEnemyCountThisGame: number = 0; // Sum for average calculation
+  private bestLivesAtEnd: number = 3; // Best lives remaining at game end
+  private bestLasersAtEnd: number = 5; // Best lasers remaining at game end
+  
+  // Per-round enemy tracking for learning
+  private enemyCountsByRound: Map<number, { max: number; avg: number; samples: number; total: number }> = new Map();
+  private currentRound: number = 1; // Track current round for per-round tracking
+  private currentRoundEnemyMax: number = 0; // Max enemies in current round
+  private currentRoundEnemyTotal: number = 0; // Total for average in current round
+  private currentRoundEnemySamples: number = 0; // Samples for current round
+  
   // Patrol/evasion behavior - constant horizontal movement
   private patrolDirection: number = 1; // 1 = right, -1 = left
   private lastPatrolChange: number = 0;
@@ -128,6 +145,21 @@ export class BotAI {
         this.lastLaserUseRound = data.lastLaserUseRound || 0;
         this.fastLearningMode = data.fastLearningMode !== undefined ? data.fastLearningMode : true;
         this.learningMultiplier = this.fastLearningMode ? 25.0 : 1.0;
+        this.bestLivesAtEnd = data.bestLivesAtEnd !== undefined ? data.bestLivesAtEnd : 3;
+        this.bestLasersAtEnd = data.bestLasersAtEnd !== undefined ? data.bestLasersAtEnd : 5;
+        
+        // Load per-round enemy data
+        if (data.enemyCountsByRound && Array.isArray(data.enemyCountsByRound)) {
+          this.enemyCountsByRound.clear();
+          for (const item of data.enemyCountsByRound) {
+            this.enemyCountsByRound.set(item.round, {
+              max: item.max,
+              avg: item.avg,
+              samples: item.samples,
+              total: item.total
+            });
+          }
+        }
         
         console.log('Bot learning data loaded:', {
           games: this.gamesPlayed,
@@ -170,6 +202,15 @@ export class BotAI {
         laserUsageThreshold: this.laserUsageThreshold,
         lastLaserUseRound: this.lastLaserUseRound,
         fastLearningMode: this.fastLearningMode,
+        bestLivesAtEnd: this.bestLivesAtEnd,
+        bestLasersAtEnd: this.bestLasersAtEnd,
+        enemyCountsByRound: Array.from(this.enemyCountsByRound.entries()).map(([round, data]) => ({
+          round,
+          max: data.max,
+          avg: data.avg,
+          samples: data.samples,
+          total: data.total
+        })),
       };
       localStorage.setItem('round42_bot_learning', JSON.stringify(data));
     } catch (e) {
@@ -199,16 +240,60 @@ export class BotAI {
     this.lastPatrolChange = 0;
     this.lastDecisionTime = 0; // Force immediate decision on next update
     this.lastLaserUseRound = 0; // Reset laser usage tracking
+    
+    // Reset game state tracking for new game
+    this.lasersUsedThisGame = 0;
+    this.maxEnemyCountThisGame = 0;
+    this.averageEnemyCountThisGame = 0;
+    this.enemyCountSamples = 0;
+    this.totalEnemyCountThisGame = 0;
+    this.currentRound = 1;
+    this.currentRoundEnemyMax = 0;
+    this.currentRoundEnemyTotal = 0;
+    this.currentRoundEnemySamples = 0;
   }
   
   /**
    * Called when a game ends - analyze performance and improve
+   * @param score Final score
+   * @param round Final round reached
+   * @param livesRemaining Lives remaining at game end
+   * @param lasersRemaining Lasers remaining at game end
    */
-  onGameEnd(score: number, round: number): void {
+  onGameEnd(score: number, round: number, livesRemaining: number = 0, lasersRemaining: number = 0): void {
     this.lastGameRound = round;
     this.gamesPlayed++;
     this.totalScore += score;
     this.averageScore = this.totalScore / this.gamesPlayed;
+    
+    // Calculate average enemy count for this game
+    if (this.enemyCountSamples > 0) {
+      this.averageEnemyCountThisGame = this.totalEnemyCountThisGame / this.enemyCountSamples;
+    }
+    
+    // Save final round's enemy data before game ends
+    if (this.currentRoundEnemySamples > 0) {
+      const finalRoundAvg = this.currentRoundEnemyTotal / this.currentRoundEnemySamples;
+      const existingData = this.enemyCountsByRound.get(this.currentRound);
+      
+      if (existingData) {
+        // Update existing data (average of all games played)
+        const totalSamples = existingData.samples + this.currentRoundEnemySamples;
+        const combinedAvg = (existingData.avg * existingData.samples + finalRoundAvg * this.currentRoundEnemySamples) / totalSamples;
+        existingData.max = Math.max(existingData.max, this.currentRoundEnemyMax);
+        existingData.avg = combinedAvg;
+        existingData.samples = totalSamples;
+        existingData.total = existingData.total + this.currentRoundEnemyTotal;
+      } else {
+        // First time seeing this round
+        this.enemyCountsByRound.set(this.currentRound, {
+          max: this.currentRoundEnemyMax,
+          avg: finalRoundAvg,
+          samples: this.currentRoundEnemySamples,
+          total: this.currentRoundEnemyTotal
+        });
+      }
+    }
     
     // Calculate performance relative to bests
     const scoreRatio = this.bestScore > 0 ? score / this.bestScore : 1.0;
@@ -226,6 +311,94 @@ export class BotAI {
     if (round > this.bestRound) {
       this.bestRound = round;
       this.improveSkills(0.1 * learningMult); // Improvement for reaching new round (25x faster!)
+    }
+    
+    // Learn from resource management (lives and lasers)
+    if (livesRemaining > this.bestLivesAtEnd) {
+      this.bestLivesAtEnd = livesRemaining;
+      // Reward for conserving lives - improve avoidance skill
+      this.improveSkills(0.08 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Better life conservation!');
+      }
+    } else if (livesRemaining < this.bestLivesAtEnd * 0.5 && this.gamesPlayed > 3) {
+      // Punish for poor life conservation (if significantly worse than best)
+      this.improveSkills(-0.005 * learningMult);
+    }
+    
+    if (lasersRemaining > this.bestLasersAtEnd) {
+      this.bestLasersAtEnd = lasersRemaining;
+      // Reward for conserving lasers - improve laser usage strategy
+      this.improveSkills(0.05 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Better laser conservation!');
+      }
+    }
+    
+    // Learn from laser usage efficiency
+    const laserEfficiency = this.lasersUsedThisGame > 0 
+      ? (score / this.lasersUsedThisGame) / 1000 // Points per laser used
+      : 0;
+    
+    if (laserEfficiency > 50 && this.lasersUsedThisGame > 0) {
+      // Good laser efficiency - slightly lower conservation (use lasers more)
+      this.laserConservationLevel = Math.max(0.2, this.laserConservationLevel - 0.01 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Lasers are effective, using them more!');
+      }
+    } else if (laserEfficiency < 20 && this.lasersUsedThisGame > 2) {
+      // Poor laser efficiency - be more conservative
+      this.laserConservationLevel = Math.min(0.7, this.laserConservationLevel + 0.01 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Lasers not effective, conserving more!');
+      }
+    }
+    
+    // Learn from enemy density patterns (overall and per-round)
+    // If bot performed well with high enemy density, improve positioning/aggression
+    if (this.maxEnemyCountThisGame > 30 && performanceRatio > 0.8) {
+      // Handled high enemy density well - improve positioning and aggression
+      this.improveSkills(0.03 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Better handling of high enemy density!');
+      }
+    } else if (this.maxEnemyCountThisGame > 30 && performanceRatio < 0.5) {
+      // Struggled with high enemy density - improve avoidance
+      this.avoidanceSkill = Math.min(2.0, this.avoidanceSkill + 0.02 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Need better evasion for high enemy density!');
+      }
+    }
+    
+    // Learn from per-round enemy patterns
+    // Analyze which rounds had unusually high/low enemy counts and adjust strategy
+    for (const [roundNum, roundData] of this.enemyCountsByRound.entries()) {
+      if (roundData.samples >= 2) { // Need at least 2 samples to learn patterns
+        // If this round typically has many enemies and bot struggled, improve avoidance
+        if (roundData.avg > 25 && round <= roundNum && performanceRatio < 0.6) {
+          this.avoidanceSkill = Math.min(2.0, this.avoidanceSkill + 0.01 * learningMult);
+          if (!this.fastLearningMode && round === roundNum) {
+            console.log(`Bot learned: Round ${roundNum} has high enemy density (avg: ${Math.round(roundData.avg)}), improving evasion!`);
+          }
+        }
+        // If bot handled a high-density round well, reward
+        if (roundData.avg > 25 && round > roundNum && performanceRatio > 0.8) {
+          this.improveSkills(0.02 * learningMult);
+          if (!this.fastLearningMode) {
+            console.log(`Bot learned: Successfully handled round ${roundNum} with ${Math.round(roundData.avg)} avg enemies!`);
+          }
+        }
+      }
+    }
+    
+    // Learn from round progression
+    // If bot reached higher rounds with fewer resources, it's learning efficiency
+    if (round > this.bestRound * 0.8 && (livesRemaining + lasersRemaining) < 3) {
+      // Reached high round with low resources - learned efficiency
+      this.improveSkills(0.04 * learningMult);
+      if (!this.fastLearningMode) {
+        console.log('Bot learned: Better resource efficiency!');
+      }
     }
     
     // Gradual improvement based on performance
@@ -253,6 +426,32 @@ export class BotAI {
     
     console.log(`Bot Stats - Games: ${this.gamesPlayed}, Best Score: ${this.bestScore}, Best Round: ${this.bestRound}, Avg Score: ${Math.round(this.averageScore)}`);
     console.log(`Bot Skills - Reaction: ${this.reactionSpeed.toFixed(2)}, Avoidance: ${this.avoidanceSkill.toFixed(2)}, Positioning: ${this.positioningSkill.toFixed(2)}`);
+    console.log(`Game Analysis - Lives: ${livesRemaining}, Lasers: ${lasersRemaining}, Lasers Used: ${this.lasersUsedThisGame}, Max Enemies: ${this.maxEnemyCountThisGame}, Avg Enemies: ${Math.round(this.averageEnemyCountThisGame)}`);
+    
+    // Show per-round enemy data for rounds played
+    if (this.enemyCountsByRound.size > 0) {
+      const roundsPlayed = Array.from(this.enemyCountsByRound.keys()).sort((a, b) => a - b);
+      const recentRounds = roundsPlayed.slice(-5); // Show last 5 rounds
+      console.log(`Per-Round Enemy Data (last 5 rounds):`);
+      for (const roundNum of recentRounds) {
+        const data = this.enemyCountsByRound.get(roundNum);
+        if (data) {
+          console.log(`  Round ${roundNum}: Max ${data.max}, Avg ${Math.round(data.avg)}, Samples ${data.samples}`);
+        }
+      }
+    }
+  }
+  
+  /**
+   * Get expected enemy count for a round (based on learned patterns)
+   * Returns average enemy count if known, otherwise null
+   */
+  getExpectedEnemyCountForRound(round: number): number | null {
+    const roundData = this.enemyCountsByRound.get(round);
+    if (roundData && roundData.samples >= 2) {
+      return roundData.avg;
+    }
+    return null;
   }
   
   /**
@@ -447,7 +646,7 @@ export class BotAI {
         threatX = nearestThreatPredictedPos.x;
         threatY = nearestThreatPredictedPos.y;
       } else {
-        const threatBounds = nearestThreat.getBounds();
+      const threatBounds = nearestThreat.getBounds();
         threatX = threatBounds.x + threatBounds.width / 2;
         threatY = threatBounds.y + threatBounds.height / 2;
       }
@@ -462,6 +661,9 @@ export class BotAI {
       // Handle both Projectile and Enemy types
       const threatVx = 'vx' in nearestThreat ? nearestThreat.vx : 0;
       const threatVy = 'vy' in nearestThreat ? nearestThreat.vy : 0;
+      
+      // Check if threat is a projectile (projectiles should prioritize horizontal evasion more)
+      const isProjectile = 'type' in nearestThreat && nearestThreat.type === ProjectileType.ENEMY;
       
       // Calculate perpendicular escape direction (prioritize horizontal)
       // For projectiles coming straight down (vy > 0, vx = 0), this gives horizontal escape
@@ -483,14 +685,26 @@ export class BotAI {
       }
       
       if (escapeLength > 0) {
-        // Prioritize horizontal movement (left/right evasion is safer and faster)
-        // Scale horizontal movement more than vertical
-        moveX = (escapeX / escapeLength) * this.avoidanceSkill * 1.5; // 1.5x horizontal priority
-        moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.6; // Reduced vertical movement
-        
-        // Also add component away from threat (prioritize horizontal escape)
-        moveX += (dx / distance) * 0.7 * this.avoidanceSkill; // Strong horizontal component
-        moveY += (dy / distance) * 0.3 * this.avoidanceSkill; // Weaker vertical component
+        // PRIORITIZE HORIZONTAL MOVEMENT - especially for projectiles
+        // For projectiles: almost pure horizontal evasion (left/right is fastest and safest)
+        // For enemies: still prioritize horizontal but allow some vertical
+        if (isProjectile) {
+          // Projectiles: STRONG horizontal priority (2.5x), minimal vertical (0.2x)
+          moveX = (escapeX / escapeLength) * this.avoidanceSkill * 2.5; // Very strong horizontal priority
+          moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.2; // Minimal vertical movement
+          
+          // Also add component away from threat (prioritize horizontal escape)
+          moveX += (dx / distance) * 1.0 * this.avoidanceSkill; // Very strong horizontal component
+          moveY += (dy / distance) * 0.1 * this.avoidanceSkill; // Minimal vertical component
+        } else {
+          // Enemies: moderate horizontal priority (1.5x), reduced vertical (0.6x)
+          moveX = (escapeX / escapeLength) * this.avoidanceSkill * 1.5; // 1.5x horizontal priority
+          moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.6; // Reduced vertical movement
+          
+          // Also add component away from threat (prioritize horizontal escape)
+          moveX += (dx / distance) * 0.7 * this.avoidanceSkill; // Strong horizontal component
+          moveY += (dy / distance) * 0.3 * this.avoidanceSkill; // Weaker vertical component
+        }
         
         // Clamp movement (ensures full directional range)
         moveX = Math.max(-1, Math.min(1, moveX));
@@ -499,9 +713,14 @@ export class BotAI {
         // Fallback: prioritize horizontal escape (always can move left/right)
         const escapeDistance = Math.sqrt(dx * dx + dy * dy);
         if (escapeDistance > 0) {
-          // Move away, but prioritize horizontal (left/right)
-          moveX = (dx / escapeDistance) * this.avoidanceSkill * 1.2;
-          moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.5;
+          // Move away, but prioritize horizontal (left/right) - even more for projectiles
+          if (isProjectile) {
+            moveX = (dx / escapeDistance) * this.avoidanceSkill * 2.0; // Very strong horizontal
+            moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.2; // Minimal vertical
+        } else {
+            moveX = (dx / escapeDistance) * this.avoidanceSkill * 1.2;
+            moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.5;
+          }
         } else {
           // Last resort: strong horizontal movement (left or right)
           moveX = dx > 0 ? 1 : -1;
@@ -725,7 +944,7 @@ export class BotAI {
               // No enemies in bottom 25% - RAPID RETURN to base
               const returnSpeed = 0.8 + (this.aggressionLevel * 0.4); // 0.8 to 1.2x speed
               moveY = returnSpeed * this.positioningSkill; // Fast downward movement to reach base
-            } else {
+          } else {
               // Enemies in bottom 25% - stay above and wait for wrap-around
               // Maintain current position or slight upward bias
               moveY = -0.2 * this.positioningSkill; // Slight upward to stay above
@@ -847,6 +1066,65 @@ export class BotAI {
     this.lastMoveX = moveX;
     this.lastMoveY = moveY;
     
+    // Track enemy count for learning (overall and per-round)
+    const currentEnemyCount = enemies.length;
+    
+    // Detect round change and save previous round's data
+    if (currentRound !== this.currentRound) {
+      // Round changed - save previous round's enemy data
+      if (this.currentRoundEnemySamples > 0) {
+        const prevRoundAvg = this.currentRoundEnemyTotal / this.currentRoundEnemySamples;
+        const existingData = this.enemyCountsByRound.get(this.currentRound);
+        
+        if (existingData) {
+          // Update existing data (average of all games played)
+          const totalSamples = existingData.samples + this.currentRoundEnemySamples;
+          const combinedAvg = (existingData.avg * existingData.samples + prevRoundAvg * this.currentRoundEnemySamples) / totalSamples;
+          existingData.max = Math.max(existingData.max, this.currentRoundEnemyMax);
+          existingData.avg = combinedAvg;
+          existingData.samples = totalSamples;
+          existingData.total = existingData.total + this.currentRoundEnemyTotal;
+        } else {
+          // First time seeing this round
+          this.enemyCountsByRound.set(this.currentRound, {
+            max: this.currentRoundEnemyMax,
+            avg: prevRoundAvg,
+            samples: this.currentRoundEnemySamples,
+            total: this.currentRoundEnemyTotal
+          });
+        }
+      }
+      
+      // Reset for new round
+      this.currentRound = currentRound;
+      this.currentRoundEnemyMax = 0;
+      this.currentRoundEnemyTotal = 0;
+      this.currentRoundEnemySamples = 0;
+    }
+    
+    // Track overall enemy count
+    if (currentEnemyCount > this.maxEnemyCountThisGame) {
+      this.maxEnemyCountThisGame = currentEnemyCount;
+    }
+    this.totalEnemyCountThisGame += currentEnemyCount;
+    this.enemyCountSamples++;
+    
+    // Track per-round enemy count
+    if (currentEnemyCount > this.currentRoundEnemyMax) {
+      this.currentRoundEnemyMax = currentEnemyCount;
+    }
+    this.currentRoundEnemyTotal += currentEnemyCount;
+    this.currentRoundEnemySamples++;
+    
+    // Track starting laser count (first time we check, when game just started)
+    if (this.lasersAvailableAtStart === 5 && this.enemyCountSamples === 1) {
+      // Game just started (first sample), record initial laser count
+      const initialLaserCount = player.getLaserCount();
+      if (initialLaserCount > 0) {
+        this.lasersAvailableAtStart = initialLaserCount;
+      }
+    }
+    
     // LASER USAGE DECISION - Use lasers strategically as last resort
     let shouldUseLaser = false;
     const laserCount = player.getLaserCount();
@@ -941,6 +1219,7 @@ export class BotAI {
       if (canUseLaser && (adjustedThreatLevel > this.laserUsageThreshold || shouldUseBasedOnThreat)) {
         shouldUseLaser = true;
         this.lastLaserUseRound = currentRound;
+        this.lasersUsedThisGame++; // Track laser usage for learning
       }
     }
     

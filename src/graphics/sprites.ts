@@ -191,11 +191,10 @@ export const PLAYER_PROJECTILE_SPRITE: number[][] = [
 ];
 
 /**
- * Enemy projectile sprite (1x4 pixels)
+ * Enemy projectile sprite (1x3 pixels)
  * White
  */
 export const ENEMY_PROJECTILE_SPRITE: number[][] = [
-  [7], // WHITE
   [7], // WHITE
   [7], // WHITE
   [7], // WHITE

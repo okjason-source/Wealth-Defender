@@ -34,14 +34,17 @@
       background: #0A0A0A;
       font-family: 'Courier New', monospace;
       color: #FFD700;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
     }
     
     #game-container {
       display: flex;
       flex-direction: column;
-      align-items: flex-start; /* Align game canvas to the left */
+      align-items: center;
       gap: 20px;
-      margin: 20px; /* Small margin from top/left edge */
     }
     
     canvas {
@@ -52,6 +55,7 @@
     }
     
     #info {
+      width: 100%;
       text-align: center;
       font-size: 14px;
       color: #C0C0C0;
