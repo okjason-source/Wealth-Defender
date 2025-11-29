@@ -924,6 +924,11 @@ export class GameManager {
     this.roundTransitionTimer = 0;
     this.frameCount = 0;
     
+    // Reset bot movement state when game restarts
+    if (this.botAI.isBotActive()) {
+      this.botAI.resetMovementState();
+    }
+    
     // Clear all entities
     this.projectileManager.clear();
     this.enemyManager.clear();

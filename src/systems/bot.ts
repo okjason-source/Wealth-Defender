@@ -164,10 +164,25 @@ export class BotAI {
   
   toggle(): void {
     this.isActive = !this.isActive;
+    if (this.isActive) {
+      // Reset movement state when bot is activated
+      this.resetMovementState();
+    }
   }
   
   isBotActive(): boolean {
     return this.isActive;
+  }
+  
+  /**
+   * Reset bot movement state (called when game restarts or bot is activated)
+   */
+  resetMovementState(): void {
+    this.lastMoveX = 0;
+    this.lastMoveY = 0;
+    this.patrolDirection = 1; // Start moving right
+    this.lastPatrolChange = 0;
+    this.lastDecisionTime = 0; // Force immediate decision on next update
   }
   
   /**
@@ -278,7 +293,11 @@ export class BotAI {
     if (frameCount - this.lastDecisionTime < adjustedInterval) {
       // Even between decisions, continue last movement and keep shooting
       // This ensures constant movement even when making decisions frequently
-      return { moveX: this.lastMoveX, moveY: this.lastMoveY, shouldShoot: true };
+      // But only if we have valid movement (not stale from previous game)
+      if (this.lastMoveX !== 0 || this.lastMoveY !== 0) {
+        return { moveX: this.lastMoveX, moveY: this.lastMoveY, shouldShoot: true };
+      }
+      // If no valid movement, make a decision immediately
     }
     
     this.lastDecisionTime = frameCount;
