@@ -5,8 +5,8 @@
 
 import { GameManager } from './managers/game';
 
-// Wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize immediately if DOM is already loaded, otherwise wait
+function initGame() {
   try {
     // Get canvas element
     const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -39,7 +39,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   }
-});
+}
+
+// Try to initialize immediately if DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initGame);
+} else {
+  // DOM is already ready
+  initGame();
+}
 
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator) {
