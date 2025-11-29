@@ -283,21 +283,25 @@ export class GameManager {
       if (this.respawnTimer <= 0) {
         // Respawn player with invincibility (at the very bottom center)
         if (!this.player) {
-      this.player = new Player(
-        this.gameWidth / 2 - 4,
-        this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
-        this.input,
-        this.projectileManager,
-        this.gameWidth,
-        this.gameHeight
-      );
-      this.player.setEnemyManager(this.enemyManager);
-    } else {
-      // Reset player position to bottom center
-      const bounds = this.player.getBounds();
-      this.player.x = this.gameWidth / 2 - bounds.width / 2; // Exact center
-      this.player.y = this.gameHeight - 5; // Bottom of screen
-    }
+          this.player = new Player(
+            this.gameWidth / 2 - 4,
+            this.gameHeight - 5, // Player sprite is 5 pixels tall, so start at bottom
+            this.input,
+            this.projectileManager,
+            this.gameWidth,
+            this.gameHeight
+          );
+          this.player.setEnemyManager(this.enemyManager);
+          // Restore saved laser count (preserve from before death, don't reset to 5)
+          const savedLaserCount = (this as any).savedLaserCount !== undefined ? (this as any).savedLaserCount : 5;
+          this.player.laserCount = savedLaserCount;
+          (this as any).savedLaserCount = undefined; // Clear saved value
+        } else {
+          // Reset player position to bottom center
+          const bounds = this.player.getBounds();
+          this.player.x = this.gameWidth / 2 - bounds.width / 2; // Exact center
+          this.player.y = this.gameHeight - 5; // Bottom of screen
+        }
         this.invincibilityTimer = this.invincibilityDuration;
         this.isRespawning = false;
       }
@@ -648,6 +652,9 @@ export class GameManager {
     // Create multi-colored neon confetti explosion for player death
     this.particleSystem.createConfettiExplosion(playerCenter.x, playerCenter.y, 24);
     
+    // Save laser count before respawning (preserve it, don't reset to 5)
+    const savedLaserCount = this.player ? this.player.getLaserCount() : 5;
+    
     // Decrease lives
     this.lives--;
     
@@ -660,6 +667,8 @@ export class GameManager {
     // Start respawn sequence
     this.isRespawning = true;
     this.respawnTimer = this.respawnDelay;
+    // Store saved laser count for respawn
+    (this as any).savedLaserCount = savedLaserCount;
     // Remove player temporarily (will be recreated after delay)
     this.player = null as any;
   }
