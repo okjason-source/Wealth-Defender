@@ -270,7 +270,6 @@ export class PixelRenderer {
     
     // Draw prismatic glow around edges (multiple layers with rainbow colors)
     const glowLayers = 8;
-    const textWidth = this.ctx.measureText(text).width;
     
     for (let layer = glowLayers; layer > 0; layer--) {
       const offset = layer * 0.5;
@@ -329,48 +328,6 @@ export class PixelRenderer {
         drawY + offset.y
       );
       this.ctx.globalAlpha = oldAlpha;
-    }
-    
-    // Add sparkle particles that sweep across the entire text
-    const textHeight = size * this.pixelSize * 8;
-    
-    // Calculate sparkle positions across the text width
-    const sparkleCount = Math.floor(textWidth / 8); // More sparkles for longer text
-    const sparkleSpacing = textWidth / sparkleCount;
-    
-    // Animate sparkles sweeping across the text
-    const sweepSpeed = 0.3;
-    const sparkleOffset = (time * sweepSpeed) % (textWidth + 20);
-    
-    for (let i = 0; i < sparkleCount; i++) {
-      const baseX = drawX - (textWidth / 2) + (i * sparkleSpacing);
-      const sparkleX = baseX + sparkleOffset - textWidth - 20;
-      
-      // Only draw sparkles that are within the text bounds
-      if (sparkleX >= drawX - (textWidth / 2) - 5 && sparkleX <= drawX + (textWidth / 2) + 5) {
-        // Create a wave effect for vertical position
-        const waveOffset = Math.sin((sparkleX - drawX) * 0.1 + time * 0.2) * 3;
-        const sparkleY = drawY + (textHeight / 2) + waveOffset;
-        
-        // Fade sparkles at edges
-        const distanceFromCenter = Math.abs(sparkleX - drawX);
-        const fadeDistance = textWidth / 2;
-        const alpha = Math.max(0, 1 - (distanceFromCenter / fadeDistance));
-        
-        if (alpha > 0.1) {
-          const sparkleColor = diamondColors[Math.floor((sparkleX * 0.1 + time) % diamondColors.length)];
-          const oldAlpha = this.ctx.globalAlpha;
-          this.ctx.globalAlpha = alpha * 0.9;
-          this.ctx.fillStyle = sparkleColor;
-          
-          // Draw sparkle (cross shape)
-          this.ctx.fillRect(sparkleX - 1, sparkleY - 1, 3, 3);
-          this.ctx.fillRect(sparkleX - 2, sparkleY, 5, 1);
-          this.ctx.fillRect(sparkleX, sparkleY - 2, 1, 5);
-          
-          this.ctx.globalAlpha = oldAlpha;
-        }
-      }
     }
     
     // Reset text alignment to default
