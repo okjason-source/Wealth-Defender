@@ -32,10 +32,6 @@
     
     body {
       background: #0A0A0A;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
       font-family: 'Courier New', monospace;
       color: #FFD700;
     }
@@ -43,8 +39,9 @@
     #game-container {
       display: flex;
       flex-direction: column;
-      align-items: center;
+      align-items: flex-start; /* Align game canvas to the left */
       gap: 20px;
+      margin: 20px; /* Small margin from top/left edge */
     }
     
     canvas {

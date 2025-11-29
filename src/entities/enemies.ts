@@ -385,28 +385,25 @@ export class Enemy {
       }
     }
     
-    // Keep enemies within horizontal bounds (for breakaway enemies)
-    // Coins, dollars, and diamonds should bounce off walls
-    // Haters have their own wrap-around logic
-    if (!this.isInLine && this.type !== EnemyType.HATER) {
+    // Keep enemies within bounds when they are in breakaway mode (not in line)
+    // This now applies to ALL enemy types, including Haters, so they can't leave the screen forever.
+    if (!this.isInLine) {
+      // Horizontal bounds
       if (this.x < 0) {
         this.x = 0;
-        this.vx = -this.vx; // Bounce off left wall
+        this.vx = Math.abs(this.vx); // Bounce back into screen
       } else if (this.x + this.width > this.gameWidth) {
         this.x = this.gameWidth - this.width;
-        this.vx = -this.vx; // Bounce off right wall
+        this.vx = -Math.abs(this.vx); // Bounce back into screen
       }
       
-      // Wrap breakaway enemies to top when they reach the bottom
+      // Vertical wrap: if they reach the bottom, wrap to top so they re-enter play
       if (this.y + this.height > this.gameHeight) {
         this.y = 0; // Re-enter from top
-        // If returning to line, continue returning
-        if (this.isReturning) {
-          // Keep returning behavior
-        }
+        // If returning to line, allow them to keep moving toward the line position
       }
       
-      // Wrap to bottom if somehow above top (shouldn't happen but safety check)
+      // Safety check: if somehow above the top beyond their height, wrap to bottom
       if (this.y < -this.height) {
         this.y = this.gameHeight;
       }
