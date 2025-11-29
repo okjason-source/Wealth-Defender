@@ -37,6 +37,8 @@ export class GameManager {
   
   // Frame counter for bot
   private frameCount: number = 0;
+  // Time counter for crushed diamond text animation
+  private diamondTextTime: number = 0;
   
   // Game state
   private score: number = 0;
@@ -55,6 +57,23 @@ export class GameManager {
   private isBonusRound: boolean = false;
   private bonusRoundComplete: boolean = false;
   private isPaused: boolean = false;
+  private currentSaying: string = '';
+  
+  // Motivational sayings for round transitions
+  private readonly sayings: string[] = [
+    "Don't Get Flocked",
+    "Elevate your Mindset",
+    "Accelerate your Mindset",
+    "Sponsored by the Vibes",
+    "Brain is Currency",
+    "Build it. Ship it",
+    "This is speed wealth, baby",
+    "Billionaire Mindset, baby",
+    "Luck is a skill, baby",
+    "Build your Empire",
+    "Extravagate your Edge",
+    "Deals flipping. Coins dripping."
+  ];
   
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -116,6 +135,10 @@ export class GameManager {
     this.round = round;
     this.isInRoundTransition = true;
     this.roundTransitionTimer = 0;
+    // Randomize saying for this round (skip for bonus rounds)
+    if (!isBonus) {
+      this.currentSaying = this.sayings[Math.floor(Math.random() * this.sayings.length)];
+    }
     this.projectileManager.clear();
     this.enemyManager.clear();
     this.particleSystem.clear();
@@ -232,6 +255,7 @@ export class GameManager {
     // Handle round transition
     if (this.isInRoundTransition) {
       this.roundTransitionTimer += deltaTime / 16.67;
+      this.diamondTextTime += deltaTime / 16.67; // Animate diamond text sparkles
       if (this.roundTransitionTimer >= this.roundTransitionDuration) {
         this.isInRoundTransition = false;
       }
@@ -713,11 +737,23 @@ export class GameManager {
     this.renderer.drawText(
       roundText,
       this.gameWidth / 2,
-      this.gameHeight / 2 - 10,
+      this.gameHeight / 2 - 20,
       this.isBonusRound ? Palette.EMERALD_GREEN : Palette.GOLD,
       1.5,
       'center'
     );
+    
+    // Draw randomized saying with crushed diamond effect (center aligned, above GET READY)
+    if (!this.isBonusRound && this.currentSaying && progress < 0.7) {
+      this.renderer.drawCrushedDiamondText(
+        this.currentSaying,
+        this.gameWidth / 2,
+        this.gameHeight / 2 - 5,
+        1.0,
+        'center',
+        this.diamondTextTime
+      );
+    }
     
     // Draw "GET READY" message (center aligned)
     if (progress < 0.7) {
@@ -725,7 +761,7 @@ export class GameManager {
       this.renderer.drawText(
         message,
         this.gameWidth / 2,
-        this.gameHeight / 2 + 5,
+        this.gameHeight / 2 + 10,
         Palette.PLATINUM,
         0.8,
         'center'

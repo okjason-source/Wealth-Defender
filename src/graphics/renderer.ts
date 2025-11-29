@@ -200,9 +200,10 @@ export class PixelRenderer {
   /**
    * Draw text (pixel-style font)
    */
-  drawText(text: string, x: number, y: number, color: string, size: number = 1, align: 'left' | 'center' | 'right' = 'left'): void {
+  drawText(text: string, x: number, y: number, color: string, size: number = 1, align: 'left' | 'center' | 'right' = 'left', bold: boolean = false): void {
     this.ctx.fillStyle = color;
-    this.ctx.font = `${size * this.pixelSize * 8}px 'Courier New', monospace`;
+    const fontWeight = bold ? 'bold ' : '';
+    this.ctx.font = `${fontWeight}${size * this.pixelSize * 8}px 'Courier New', monospace`;
     this.ctx.textBaseline = 'top';
     this.ctx.textAlign = align;
     
@@ -221,6 +222,156 @@ export class PixelRenderer {
       drawX,
       y * this.pixelSize
     );
+    
+    // Reset text alignment to default
+    this.ctx.textAlign = 'left';
+  }
+  
+  /**
+   * Draw text with crushed diamond effect (sparkly, multi-layered)
+   */
+  drawCrushedDiamondText(text: string, x: number, y: number, size: number = 1, align: 'left' | 'center' | 'right' = 'left', time: number = 0): void {
+    const fontWeight = 'bold ';
+    this.ctx.font = `${fontWeight}${size * this.pixelSize * 8}px 'Courier New', monospace`;
+    this.ctx.textBaseline = 'top';
+    this.ctx.textAlign = align;
+    
+    // Calculate draw position
+    let drawX = x * this.pixelSize;
+    if (align === 'center') {
+      drawX = x * this.pixelSize;
+    } else if (align === 'right') {
+      drawX = x * this.pixelSize;
+    }
+    const drawY = y * this.pixelSize;
+    
+    // Prismatic colors (rainbow spectrum like light through a prism)
+    const prismColors = [
+      '#FF0000', // Red
+      '#FF7F00', // Orange
+      '#FFFF00', // Yellow
+      '#00FF00', // Green
+      '#0000FF', // Blue
+      '#4B0082', // Indigo
+      '#9400D3', // Violet
+    ];
+    
+    // Diamond colors for main text (cool blue/white tones)
+    const diamondColors = [
+      '#E6F3FF', // Cool white (blue-tinted)
+      '#B0E0E6', // Powder blue
+      '#87CEEB', // Sky blue
+      '#D0E8F0', // Cool light gray-blue
+      '#B8D4E3', // Cool silver-blue
+      '#ADD8E6', // Light blue
+      '#C8E6F0', // Ice blue
+      '#A8D8E8', // Cool cyan
+    ];
+    
+    // Draw prismatic glow around edges (multiple layers with rainbow colors)
+    const glowLayers = 8;
+    const textWidth = this.ctx.measureText(text).width;
+    
+    for (let layer = glowLayers; layer > 0; layer--) {
+      const offset = layer * 0.5;
+      const alpha = (1 - (layer / glowLayers)) * 0.3;
+      
+      // Create prismatic effect by cycling through rainbow colors based on position
+      for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI / 2) + (time * 0.05); // Rotate colors
+        const colorIndex = Math.floor((angle * prismColors.length / (Math.PI * 2)) + layer) % prismColors.length;
+        const glowColor = prismColors[colorIndex];
+        
+        const oldAlpha = this.ctx.globalAlpha;
+        this.ctx.globalAlpha = alpha;
+        this.ctx.fillStyle = glowColor;
+        
+        // Draw glow on all sides
+        const offsets = [
+          { x: -offset, y: 0 },      // Left
+          { x: offset, y: 0 },       // Right
+          { x: 0, y: -offset },      // Top
+          { x: 0, y: offset },       // Bottom
+          { x: -offset * 0.7, y: -offset * 0.7 }, // Top-left
+          { x: offset * 0.7, y: -offset * 0.7 },  // Top-right
+          { x: -offset * 0.7, y: offset * 0.7 },  // Bottom-left
+          { x: offset * 0.7, y: offset * 0.7 },   // Bottom-right
+        ];
+        
+        for (const off of offsets) {
+          this.ctx.fillText(
+            text,
+            drawX + off.x,
+            drawY + off.y
+          );
+        }
+        
+        this.ctx.globalAlpha = oldAlpha;
+      }
+    }
+    
+    // Draw main text layers with diamond colors
+    const offsets = [
+      { x: -1, y: -1, color: diamondColors[0], alpha: 0.6 }, // Cool white shadow
+      { x: 1, y: -1, color: diamondColors[1], alpha: 0.5 },  // Powder blue highlight
+      { x: -1, y: 1, color: diamondColors[2], alpha: 0.5 },  // Sky blue shadow
+      { x: 1, y: 1, color: diamondColors[3], alpha: 0.4 },   // Cool light gray-blue
+      { x: 0, y: 0, color: diamondColors[0], alpha: 1.0 },   // Main cool white layer
+    ];
+    
+    for (const offset of offsets) {
+      const oldAlpha = this.ctx.globalAlpha;
+      this.ctx.globalAlpha = offset.alpha;
+      this.ctx.fillStyle = offset.color;
+      this.ctx.fillText(
+        text,
+        drawX + offset.x,
+        drawY + offset.y
+      );
+      this.ctx.globalAlpha = oldAlpha;
+    }
+    
+    // Add sparkle particles that sweep across the entire text
+    const textHeight = size * this.pixelSize * 8;
+    
+    // Calculate sparkle positions across the text width
+    const sparkleCount = Math.floor(textWidth / 8); // More sparkles for longer text
+    const sparkleSpacing = textWidth / sparkleCount;
+    
+    // Animate sparkles sweeping across the text
+    const sweepSpeed = 0.3;
+    const sparkleOffset = (time * sweepSpeed) % (textWidth + 20);
+    
+    for (let i = 0; i < sparkleCount; i++) {
+      const baseX = drawX - (textWidth / 2) + (i * sparkleSpacing);
+      const sparkleX = baseX + sparkleOffset - textWidth - 20;
+      
+      // Only draw sparkles that are within the text bounds
+      if (sparkleX >= drawX - (textWidth / 2) - 5 && sparkleX <= drawX + (textWidth / 2) + 5) {
+        // Create a wave effect for vertical position
+        const waveOffset = Math.sin((sparkleX - drawX) * 0.1 + time * 0.2) * 3;
+        const sparkleY = drawY + (textHeight / 2) + waveOffset;
+        
+        // Fade sparkles at edges
+        const distanceFromCenter = Math.abs(sparkleX - drawX);
+        const fadeDistance = textWidth / 2;
+        const alpha = Math.max(0, 1 - (distanceFromCenter / fadeDistance));
+        
+        if (alpha > 0.1) {
+          const sparkleColor = diamondColors[Math.floor((sparkleX * 0.1 + time) % diamondColors.length)];
+          const oldAlpha = this.ctx.globalAlpha;
+          this.ctx.globalAlpha = alpha * 0.9;
+          this.ctx.fillStyle = sparkleColor;
+          
+          // Draw sparkle (cross shape)
+          this.ctx.fillRect(sparkleX - 1, sparkleY - 1, 3, 3);
+          this.ctx.fillRect(sparkleX - 2, sparkleY, 5, 1);
+          this.ctx.fillRect(sparkleX, sparkleY - 2, 1, 5);
+          
+          this.ctx.globalAlpha = oldAlpha;
+        }
+      }
+    }
     
     // Reset text alignment to default
     this.ctx.textAlign = 'left';
