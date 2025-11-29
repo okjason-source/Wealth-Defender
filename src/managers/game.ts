@@ -316,9 +316,11 @@ export class GameManager {
           enemyProjectiles,
           this.gameWidth,
           this.gameHeight,
-          this.frameCount
+          this.frameCount,
+          this.round,
+          this.lives
         );
-        this.player.update(deltaTime, botDecision.moveX, botDecision.moveY, botDecision.shouldShoot);
+        this.player.update(deltaTime, botDecision.moveX, botDecision.moveY, botDecision.shouldShoot, botDecision.shouldUseLaser);
       } else {
         this.player.update(deltaTime);
       }
@@ -439,8 +441,20 @@ export class GameManager {
     const playerBounds = this.player.getBounds();
     
     // Get steering input (left/right only)
-    const steerLeft = this.input.isMovingLeft();
-    const steerRight = this.input.isMovingRight();
+    let steerLeft = this.input.isMovingLeft();
+    let steerRight = this.input.isMovingRight();
+    
+    // If bot is active, use bot AI for bonus round navigation
+    if (this.botAI.isBotActive()) {
+      const botSteering = this.botAI.updateBonusRound(
+        this.player,
+        this.bonusMaze,
+        this.gameWidth,
+        this.gameHeight
+      );
+      steerLeft = botSteering.steerLeft;
+      steerRight = botSteering.steerRight;
+    }
     
     // Update player position (automatic forward movement, left/right steering)
     const newPos = this.bonusMaze.updatePlayer(

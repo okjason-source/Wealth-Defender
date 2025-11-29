@@ -60,7 +60,7 @@ export class Player {
     this.gameHeight = gameHeight;
   }
   
-  update(deltaTime: number, botMoveX?: number, botMoveY?: number, botShouldShoot?: boolean): void {
+  update(deltaTime: number, botMoveX?: number, botMoveY?: number, botShouldShoot?: boolean, botShouldUseLaser?: boolean): void {
     const frameDelta = deltaTime / 16.67; // Normalize to 60 FPS
     
     // Handle movement (bot control or input)
@@ -144,7 +144,7 @@ export class Player {
     }
     
     // Handle weapons
-    this.updateWeapons(deltaTime, botShouldShoot);
+    this.updateWeapons(deltaTime, botShouldShoot, botShouldUseLaser);
     
     // Update lightning laser
     if (this.lightningLaserActive) {
@@ -168,7 +168,7 @@ export class Player {
     return this.laserCount;
   }
   
-  private updateWeapons(deltaTime: number, botShouldShoot?: boolean): void {
+  private updateWeapons(deltaTime: number, botShouldShoot?: boolean, botShouldUseLaser?: boolean): void {
     // Update cooldowns
     if (this.autoFireCooldown > 0) {
       this.autoFireCooldown -= deltaTime / 16.67;
@@ -181,8 +181,12 @@ export class Player {
       this.autoFireCooldown = this.autoFireRate;
     }
     
-    // Lightning laser (replaces old targeting laser) - Z key or mouse click
-    if (!botShouldShoot && this.input.wasKeyJustPressed('z') && this.laserCount > 0 && !this.lightningLaserActive) {
+    // Lightning laser (replaces old targeting laser) - Z key, mouse click, or bot decision
+    const shouldUseLaser = botShouldUseLaser !== undefined 
+      ? botShouldUseLaser 
+      : (this.input.wasKeyJustPressed('z') && !botShouldShoot);
+    
+    if (shouldUseLaser && this.laserCount > 0 && !this.lightningLaserActive) {
       this.fireLightningLaser();
     }
   }

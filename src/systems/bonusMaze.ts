@@ -25,7 +25,7 @@ export interface BonusLaser {
 export class BonusMaze {
   private walls: MazeWall[] = [];
   private lives: BonusLife[] = []; // Array of life pickups (10 total)
-  private lasers: BonusLaser[] = []; // Array of laser pickups (20 total)
+  private lasers: BonusLaser[] = []; // Array of laser pickups (10 total)
   private gameWidth: number;
   private gameHeight: number; // Used in placeLife and checkExit
   private pathWidth: number = 45; // Width of the path through the maze (increased for easier navigation)
@@ -40,7 +40,7 @@ export class BonusMaze {
     this.segmentHeight = gameHeight / this.segments;
     this.generateMaze();
     this.placeLives(); // Place 10 lives
-    this.placeLasers(); // Place 20 lasers
+    this.placeLasers(); // Place 10 lasers
   }
 
   /**
@@ -139,16 +139,17 @@ export class BonusMaze {
   }
 
   /**
-   * Place 5 free lives throughout the maze
+   * Place 10 free lives throughout the maze
    * Positioned on left side - player must choose between life and laser
    */
   private placeLives(): void {
     this.lives = [];
-    const totalLives = 5;
+    const totalLives = 10;
     
-    // Place lives in segments 1, 2, 3, 4, 5 (spread out)
+    // Place lives in segments 1-7 (spread out across more segments)
     for (let i = 0; i < totalLives; i++) {
-      const segmentIndex = 1 + i; // Segments 1-5
+      // Distribute across segments 1-7 (avoiding segment 0 where player starts)
+      const segmentIndex = 1 + (i % 7); // Segments 1-7, cycling if needed
       const lifeY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
       // Place lives on the LEFT side of the path
@@ -166,16 +167,17 @@ export class BonusMaze {
   }
   
   /**
-   * Place 5 laser pickups throughout the maze
+   * Place 10 laser pickups throughout the maze
    * Positioned on right side - player must choose between life and laser
    */
   private placeLasers(): void {
     this.lasers = [];
-    const totalLasers = 5;
+    const totalLasers = 10;
     
-    // Place lasers in segments 2, 3, 4, 5, 6 (slightly offset from lives for challenge)
+    // Place lasers in segments 1-7 (spread out across more segments)
     for (let i = 0; i < totalLasers; i++) {
-      const segmentIndex = 2 + i; // Segments 2-6
+      // Distribute across segments 1-7 (avoiding segment 0 where player starts)
+      const segmentIndex = 1 + (i % 7); // Segments 1-7, cycling if needed
       const laserY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
       // Place lasers on the RIGHT side of the path
@@ -330,7 +332,7 @@ export class BonusMaze {
     this.exited = false;
     this.generateMaze();
     this.placeLives(); // Place 10 lives
-    this.placeLasers(); // Place 20 lasers
+    this.placeLasers(); // Place 10 lasers
   }
 }
 

@@ -4,8 +4,9 @@
  */
 
 import { Player } from '../entities/player';
-import { Enemy } from '../entities/enemies';
+import { Enemy, EnemyType } from '../entities/enemies';
 import { Projectile, ProjectileType } from '../entities/projectiles';
+import { BonusMaze, MazeWall } from './bonusMaze';
 
 export class BotAI {
   private isActive: boolean = false;
@@ -25,6 +26,11 @@ export class BotAI {
   private avoidanceSkill: number = 1.4; // How well it avoids threats (higher = better) - START HIGHER
   private positioningSkill: number = 1.4; // How well it positions for shooting (higher = better) - START HIGHER
   private aggressionLevel: number = 0.6; // How aggressively it targets/shoots enemies (0-1) - NOT about moving closer
+  
+  // Laser usage parameters
+  private laserConservationLevel: number = 0.7; // How conservative with lasers (0-1, higher = more conservative)
+  private laserUsageThreshold: number = 0.6; // Threshold for using lasers (0-1, higher = only in emergencies)
+  private lastLaserUseRound: number = 0; // Track which round lasers were last used
   
   // Fast learning mode - dramatically increases learning rates
   private fastLearningMode: boolean = true; // Enable fast learning by default
@@ -117,6 +123,9 @@ export class BotAI {
         this.avoidanceSkill = data.avoidanceSkill || 1.4;
         this.positioningSkill = data.positioningSkill || 1.4;
         this.aggressionLevel = data.aggressionLevel || 0.6;
+        this.laserConservationLevel = data.laserConservationLevel !== undefined ? data.laserConservationLevel : 0.7;
+        this.laserUsageThreshold = data.laserUsageThreshold !== undefined ? data.laserUsageThreshold : 0.6;
+        this.lastLaserUseRound = data.lastLaserUseRound || 0;
         this.fastLearningMode = data.fastLearningMode !== undefined ? data.fastLearningMode : true;
         this.learningMultiplier = this.fastLearningMode ? 25.0 : 1.0;
         
@@ -131,6 +140,9 @@ export class BotAI {
         this.avoidanceSkill = 1.4;
         this.positioningSkill = 1.4;
         this.aggressionLevel = 0.6;
+        this.laserConservationLevel = 0.7;
+        this.laserUsageThreshold = 0.6;
+        this.lastLaserUseRound = 0;
         this.fastLearningMode = true;
         this.learningMultiplier = 25.0;
       }
@@ -154,6 +166,9 @@ export class BotAI {
         avoidanceSkill: this.avoidanceSkill,
         positioningSkill: this.positioningSkill,
         aggressionLevel: this.aggressionLevel,
+        laserConservationLevel: this.laserConservationLevel,
+        laserUsageThreshold: this.laserUsageThreshold,
+        lastLaserUseRound: this.lastLaserUseRound,
         fastLearningMode: this.fastLearningMode,
       };
       localStorage.setItem('round42_bot_learning', JSON.stringify(data));
@@ -183,6 +198,7 @@ export class BotAI {
     this.patrolDirection = 1; // Start moving right
     this.lastPatrolChange = 0;
     this.lastDecisionTime = 0; // Force immediate decision on next update
+    this.lastLaserUseRound = 0; // Reset laser usage tracking
   }
   
   /**
@@ -273,7 +289,7 @@ export class BotAI {
   }
   
   /**
-   * Update bot AI - decides where to move and when to shoot
+   * Update bot AI - decides where to move, when to shoot, and when to use lasers
    */
   update(
     player: Player,
@@ -281,10 +297,12 @@ export class BotAI {
     enemyProjectiles: Projectile[],
     gameWidth: number,
     gameHeight: number,
-    frameCount: number
-  ): { moveX: number; moveY: number; shouldShoot: boolean } {
+    frameCount: number,
+    currentRound: number = 1,
+    lives: number = 3
+  ): { moveX: number; moveY: number; shouldShoot: boolean; shouldUseLaser: boolean } {
     if (!this.isActive) {
-      return { moveX: 0, moveY: 0, shouldShoot: false };
+      return { moveX: 0, moveY: 0, shouldShoot: false, shouldUseLaser: false };
     }
     
     // Make decisions at intervals (faster with improved reaction speed)
@@ -295,7 +313,7 @@ export class BotAI {
       // This ensures constant movement even when making decisions frequently
       // But only if we have valid movement (not stale from previous game)
       if (this.lastMoveX !== 0 || this.lastMoveY !== 0) {
-        return { moveX: this.lastMoveX, moveY: this.lastMoveY, shouldShoot: true };
+        return { moveX: this.lastMoveX, moveY: this.lastMoveY, shouldShoot: true, shouldUseLaser: false };
       }
       // If no valid movement, make a decision immediately
     }
@@ -326,9 +344,11 @@ export class BotAI {
       this.lastPatrolChange = frameCount;
     }
     
-    // Find nearest enemy projectile threat (better detection with improved avoidance)
-    let nearestThreat: Projectile | null = null;
+    // Find nearest threat (projectile or close enemy)
+    // Use predicted positions for better evasion
+    let nearestThreat: Projectile | Enemy | null = null;
     let nearestThreatDistance = Infinity;
+    let nearestThreatPredictedPos: { x: number; y: number } | null = null;
     const threatDetectionRange = 60 * this.avoidanceSkill; // Better detection range
     
     for (const projectile of enemyProjectiles) {
@@ -382,16 +402,55 @@ export class BotAI {
           if (distance < nearestThreatDistance) {
             nearestThreat = projectile;
             nearestThreatDistance = distance;
+            // Predict projectile position (projectiles move fast, predict 5 frames ahead)
+            nearestThreatPredictedPos = {
+              x: futureProjX,
+              y: futureProjY
+            };
           }
         }
       }
     }
     
-    // Avoid threats (better avoidance with skill)
+    // Check for close enemies (breakaway enemies are especially dangerous)
+    // Use predicted positions to anticipate enemy movement
+    if (nearestThreatDistance > 40) { // Only check enemies if no immediate projectile threat
+      for (const enemy of enemies) {
+        // Predict enemy position (look 10 frames ahead)
+        const predictedPos = this.predictEnemyPosition(enemy, 10);
+        const dx = playerCenterX - predictedPos.x;
+        const dy = playerCenterY - predictedPos.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Check if enemy is breakaway (moving toward player) - these are high priority
+        const isBreakaway = this.isBreakawayEnemy(enemy, playerCenterX, playerCenterY);
+        const threatLevel = this.getEnemyThreatLevel(enemy, playerCenterX, playerCenterY, predictedPos);
+        
+        // Breakaway enemies or high-threat enemies within range
+        if ((isBreakaway && distance < 60) || (threatLevel > 0.3 && distance < 40)) {
+          if (distance < nearestThreatDistance) {
+            nearestThreat = enemy;
+            nearestThreatDistance = distance;
+            nearestThreatPredictedPos = predictedPos;
+          }
+        }
+      }
+    }
+    
+    // PRIORITY 0: ALWAYS EVADE THREATS FIRST - Never forget to evade!
     if (nearestThreat) {
-      const threatBounds = nearestThreat.getBounds();
-      const threatX = threatBounds.x + threatBounds.width / 2;
-      const threatY = threatBounds.y + threatBounds.height / 2;
+      // Use predicted position if available, otherwise use current position
+      let threatX: number;
+      let threatY: number;
+      
+      if (nearestThreatPredictedPos) {
+        threatX = nearestThreatPredictedPos.x;
+        threatY = nearestThreatPredictedPos.y;
+      } else {
+        const threatBounds = nearestThreat.getBounds();
+        threatX = threatBounds.x + threatBounds.width / 2;
+        threatY = threatBounds.y + threatBounds.height / 2;
+      }
       
       // Calculate optimal escape direction (improved with avoidance skill)
       const dx = playerCenterX - threatX;
@@ -399,16 +458,32 @@ export class BotAI {
       const distance = Math.sqrt(dx * dx + dy * dy);
       
       // Better movement: prioritize horizontal evasion (left/right movement)
-      const threatVx = nearestThreat.vx;
-      const threatVy = nearestThreat.vy;
+      // Bot can move left/right to evade projectiles - this is the primary evasion method
+      // Handle both Projectile and Enemy types
+      const threatVx = 'vx' in nearestThreat ? nearestThreat.vx : 0;
+      const threatVy = 'vy' in nearestThreat ? nearestThreat.vy : 0;
       
       // Calculate perpendicular escape direction (prioritize horizontal)
-      const escapeX = -threatVy; // Perpendicular to threat velocity
-      const escapeY = threatVx;
-      const escapeLength = Math.sqrt(escapeX * escapeX + escapeY * escapeY);
+      // For projectiles coming straight down (vy > 0, vx = 0), this gives horizontal escape
+      let escapeX = -threatVy; // Perpendicular to threat velocity (horizontal when threat is vertical)
+      let escapeY = threatVx;
+      let escapeLength = Math.sqrt(escapeX * escapeX + escapeY * escapeY);
+      
+      // If projectile is coming straight down or up, prefer horizontal evasion
+      if (Math.abs(threatVx) < 0.1 && Math.abs(threatVy) > 0.1) {
+        // Projectile is mostly vertical - escape horizontally (left or right)
+        escapeX = dx > 0 ? 1 : -1; // Move away horizontally
+        escapeY = 0;
+        escapeLength = 1;
+      } else if (escapeLength < 0.1) {
+        // Threat has no clear velocity - escape horizontally away from threat
+        escapeX = dx > 0 ? 1 : -1;
+        escapeY = 0;
+        escapeLength = 1;
+      }
       
       if (escapeLength > 0) {
-        // Prioritize horizontal movement (left/right evasion is safer)
+        // Prioritize horizontal movement (left/right evasion is safer and faster)
         // Scale horizontal movement more than vertical
         moveX = (escapeX / escapeLength) * this.avoidanceSkill * 1.5; // 1.5x horizontal priority
         moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.6; // Reduced vertical movement
@@ -421,25 +496,46 @@ export class BotAI {
         moveX = Math.max(-1, Math.min(1, moveX));
         moveY = Math.max(-1, Math.min(1, moveY));
       } else {
-        // Fallback: prioritize horizontal escape
+        // Fallback: prioritize horizontal escape (always can move left/right)
         const escapeDistance = Math.sqrt(dx * dx + dy * dy);
         if (escapeDistance > 0) {
-          // Move away, but prioritize horizontal
+          // Move away, but prioritize horizontal (left/right)
           moveX = (dx / escapeDistance) * this.avoidanceSkill * 1.2;
           moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.5;
         } else {
-          // Last resort: strong horizontal movement
+          // Last resort: strong horizontal movement (left or right)
           moveX = dx > 0 ? 1 : -1;
           moveY = 0; // No vertical movement as last resort
         }
       }
       
-      // Allow upward evasion when evading projectiles (but return to base after)
-      // Don't force downward - allow rapid upward movement for evasion
-      // The return-to-base logic will handle getting back down
+      // AFTER evading, check if we can return to base (but evasion takes priority)
+      // Only consider returning if threat is not immediate
+      if (nearestThreatDistance > 25) { // Threat is further away
+        // Check if enemies are in bottom 25% (waiting for wrap-around)
+        const bottom25PercentY = gameHeight * 0.75; // 112.5 pixels for 150 height
+        let enemiesInBottom25Percent = false;
+        
+        for (const enemy of enemies) {
+          const enemyBounds = enemy.getBounds();
+          const enemyY = enemyBounds.y + enemyBounds.height / 2;
+          if (enemyY > bottom25PercentY) {
+            enemiesInBottom25Percent = true;
+            break;
+          }
+        }
+        
+        // If no enemies in bottom 25% and we're above base, try to return while evading
+        if (!enemiesInBottom25Percent && playerCenterY < preferredBottomY) {
+          // Add slight downward component while still prioritizing evasion
+          moveY = Math.max(0.2, moveY * 0.7); // Reduce upward evasion slightly, allow some downward
+        }
+        // If enemies are in bottom 20%, keep current evasion (stay above)
+      }
+      // If threat is very close (< 25 pixels), pure evasion only - no return to base
     } else {
-      // No immediate threat - position to shoot enemies while maintaining bottom half
-      // Add constant horizontal patrol for evasion even when no threats
+      // No immediate projectile threat - but still check for close enemies and position to shoot
+      // Continue constant horizontal patrol for evasion even when no threats
       if (enemies.length === 0) {
         // No enemies - AGGRESSIVE: long fast horizontal sweeps along the base
         const sweepSpeed = 1.0 + (this.aggressionLevel * 0.5); // 1.0 to 1.5x speed
@@ -569,8 +665,8 @@ export class BotAI {
             
             // Master level: prioritize high-value targets (diamonds, haters)
             if (this.positioningSkill > 1.8) {
-              if (enemy.type === 2) score += 20; // Diamonds (high value)
-              if (enemy.type === 3) score += 25; // Haters (high value, dangerous)
+              if (enemy.type === EnemyType.DIAMOND) score += 20; // Diamonds (high value)
+              if (enemy.type === EnemyType.HATER) score += 25; // Haters (high value, dangerous)
             }
             
             if (score > bestScore) {
@@ -580,9 +676,10 @@ export class BotAI {
           }
         
         if (bestTarget) {
-          const enemyBounds = bestTarget.getBounds();
-          const enemyX = enemyBounds.x + enemyBounds.width / 2;
-          const enemyY = enemyBounds.y + enemyBounds.height / 2;
+          // Use predicted position for better targeting (especially for BRAIN wave patterns)
+          const predictedPos = this.predictEnemyPosition(bestTarget, 15);
+          const enemyX = predictedPos.x;
+          const enemyY = predictedPos.y;
           
           // Positioning: align horizontally below enemy, stay in bottom half
           const dx = enemyX - playerCenterX;
@@ -609,43 +706,65 @@ export class BotAI {
           }
           
           // PRIORITY 2: Return to base after evading OR stay at base
-          // If we're above base (evaded upward), quickly return
-          // If at base, maintain position
+          // Check if enemies are in bottom 25% (waiting for wrap-around)
+          const bottom25PercentY = gameHeight * 0.75; // 112.5 pixels for 150 height
+          let enemiesInBottom25Percent = false;
+          
+          for (const enemy of enemies) {
+            const enemyBounds = enemy.getBounds();
+            const enemyY = enemyBounds.y + enemyBounds.height / 2;
+            if (enemyY > bottom25PercentY) {
+              enemiesInBottom25Percent = true;
+              break;
+            }
+          }
+          
           if (playerCenterY < preferredBottomY) {
-            // Above base - RAPID RETURN: move down quickly (aggressive return)
-            const returnSpeed = 0.8 + (this.aggressionLevel * 0.4); // 0.8 to 1.2x speed
-            moveY = returnSpeed * this.positioningSkill; // Fast downward movement to reach base
+            // Above base - check if safe to return
+            if (!enemiesInBottom25Percent) {
+              // No enemies in bottom 25% - RAPID RETURN to base
+              const returnSpeed = 0.8 + (this.aggressionLevel * 0.4); // 0.8 to 1.2x speed
+              moveY = returnSpeed * this.positioningSkill; // Fast downward movement to reach base
+            } else {
+              // Enemies in bottom 25% - stay above and wait for wrap-around
+              // Maintain current position or slight upward bias
+              moveY = -0.2 * this.positioningSkill; // Slight upward to stay above
+            }
           } else {
             // At or near the base - maintain position at bottom
             moveY = 0.2 * this.positioningSkill; // Slight downward bias to stay at base
           }
           
-          // PRIORITY 3: Maintain safe distance - AGGRESSIVE EVASION
+          // PRIORITY 3: Maintain safe distance - AGGRESSIVE EVASION (ALWAYS EVADE FIRST!)
           // Check if enemy is descending and close
           const enemyVy = bestTarget.vy || 0.1; // Enemy vertical velocity (positive = descending)
           const isEnemyDescending = enemyY < playerCenterY && enemyVy > 0; // Enemy above and moving down
           const isEnemyCloseAbove = enemyY < playerCenterY && Math.abs(dx) < 20; // Enemy directly above
           
           if (currentDistance < safeDistance) {
-            // Too close! RAPID EVASION
+            // Too close! PURE EVASION ONLY - Never try to return to base when evading!
             const escapeDx = playerCenterX - enemyX;
             const escapeDy = playerCenterY - enemyY;
             const escapeDist = Math.sqrt(escapeDx * escapeDx + escapeDy * escapeDy);
             
             if (escapeDist > 0) {
               if (isEnemyDescending && isEnemyCloseAbove) {
-                // Enemy descending above - RAPID UPWARD EVASION
+                // Enemy descending above - RAPID UPWARD EVASION (pure evasion, no return to base)
                 const evasionSpeed = 1.6 + (this.aggressionLevel * 0.4); // 1.6 to 2.0x speed
                 moveX = (escapeDx / escapeDist) * evasionSpeed * this.avoidanceSkill;
-                moveY = -evasionSpeed * this.avoidanceSkill; // Rapid upward
+                moveY = -evasionSpeed * this.avoidanceSkill; // Rapid upward - pure evasion only
+                // Don't try to return to base when actively evading descending enemy!
               } else {
-                // Normal escape - strong horizontal, minimal vertical
+                // Normal escape - strong horizontal, minimal vertical (pure evasion)
                 const escapeSpeed = 1.5 + (this.aggressionLevel * 0.3); // Faster with aggression
                 moveX = (escapeDx / escapeDist) * escapeSpeed * this.avoidanceSkill;
                 moveY = (escapeDy / escapeDist) * 0.3 * this.avoidanceSkill;
+                // Pure evasion when too close - don't try to return to base
               }
             }
+            // When too close, evasion takes absolute priority - return to base logic is skipped
           }
+          // If safe distance maintained, return to base logic in PRIORITY 2 will handle it
           
           // Aggression now means: faster target acquisition and better target prioritization
           // NOT moving closer - that's handled above with safe distance
@@ -655,10 +774,28 @@ export class BotAI {
           const sweepSpeed = 1.0 + (this.aggressionLevel * 0.5); // 1.0 to 1.5x speed
           moveX = this.patrolDirection * sweepSpeed * this.avoidanceSkill;
           
-          // Return to base if above it (after evading)
+          // Return to base if above it, but check for enemies in bottom 25%
+          const bottom25PercentY = gameHeight * 0.75;
+          let enemiesInBottom25Percent = false;
+          
+          for (const enemy of enemies) {
+            const enemyBounds = enemy.getBounds();
+            const enemyY = enemyBounds.y + enemyBounds.height / 2;
+            if (enemyY > bottom25PercentY) {
+              enemiesInBottom25Percent = true;
+              break;
+            }
+          }
+          
           if (playerCenterY < preferredBottomY) {
-            const returnSpeed = 0.7 + (this.aggressionLevel * 0.3); // Faster return with aggression
-            moveY = returnSpeed * this.positioningSkill; // Move down to base
+            if (!enemiesInBottom25Percent) {
+              // No enemies in bottom 25% - return to base
+              const returnSpeed = 0.7 + (this.aggressionLevel * 0.3); // Faster return with aggression
+              moveY = returnSpeed * this.positioningSkill; // Move down to base
+            } else {
+              // Enemies in bottom 25% - stay above (wait for wrap-around)
+              moveY = -0.1 * this.positioningSkill; // Slight upward to stay above
+            }
           } else {
             moveY = 0.2 * this.positioningSkill; // Stay at base
           }
@@ -710,7 +847,380 @@ export class BotAI {
     this.lastMoveX = moveX;
     this.lastMoveY = moveY;
     
-    return { moveX, moveY, shouldShoot };
+    // LASER USAGE DECISION - Use lasers strategically as last resort
+    let shouldUseLaser = false;
+    const laserCount = player.getLaserCount();
+    
+    // Only consider using laser if we have lasers available
+    if (laserCount > 0) {
+      // Calculate threat level (0-1)
+      let threatLevel = 0;
+      
+      // Factor 1: Number of enemies close to player
+      const closeEnemyThreshold = 40;
+      let closeEnemies = 0;
+      for (const enemy of enemies) {
+        const enemyBounds = enemy.getBounds();
+        const enemyX = enemyBounds.x + enemyBounds.width / 2;
+        const enemyY = enemyBounds.y + enemyBounds.height / 2;
+        const dx = playerCenterX - enemyX;
+        const dy = playerCenterY - enemyY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < closeEnemyThreshold) {
+          closeEnemies++;
+        }
+      }
+      threatLevel += Math.min(closeEnemies / 5, 0.4); // Up to 40% from close enemies
+      
+      // Factor 2: Number of enemy projectiles threatening player
+      let threateningProjectiles = 0;
+      for (const projectile of enemyProjectiles) {
+        if (projectile.type !== ProjectileType.ENEMY) continue;
+        const projBounds = projectile.getBounds();
+        const projX = projBounds.x + projBounds.width / 2;
+        const projY = projBounds.y + projBounds.height / 2;
+        const dx = playerCenterX - projX;
+        const dy = playerCenterY - projY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 30) {
+          threateningProjectiles++;
+        }
+      }
+      threatLevel += Math.min(threateningProjectiles / 3, 0.3); // Up to 30% from projectiles
+      
+      // Factor 3: Low health (lives remaining)
+      if (lives <= 1) {
+        threatLevel += 0.3; // 30% bonus if on last life
+      } else if (lives === 2) {
+        threatLevel += 0.15; // 15% bonus if on second-to-last life
+      }
+      
+      // Factor 4: High round number (harder rounds)
+      if (currentRound > 20) {
+        threatLevel += 0.1; // 10% bonus for high rounds
+      } else if (currentRound > 10) {
+        threatLevel += 0.05; // 5% bonus for medium rounds
+      }
+      
+      // Factor 5: Many enemies in laser range (potential multi-kill)
+      let enemiesInLaserRange = 0;
+      for (const enemy of enemies) {
+        const enemyBounds = enemy.getBounds();
+        const enemyX = enemyBounds.x + enemyBounds.width / 2;
+        const enemyY = enemyBounds.y + enemyBounds.height / 2;
+        const dx = playerCenterX - enemyX;
+        const dy = playerCenterY - enemyY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance <= 80) { // Laser range
+          enemiesInLaserRange++;
+        }
+      }
+      if (enemiesInLaserRange >= 3) {
+        threatLevel += 0.2; // 20% bonus if can hit 3+ enemies
+      } else if (enemiesInLaserRange >= 2) {
+        threatLevel += 0.1; // 10% bonus if can hit 2+ enemies
+      }
+      
+      // Clamp threat level to 0-1
+      threatLevel = Math.min(1.0, threatLevel);
+      
+      // CONSERVATION: Don't use lasers too frequently
+      const roundsSinceLastLaser = currentRound - this.lastLaserUseRound;
+      const minRoundsBetweenLasers = Math.max(3, Math.floor(10 * this.laserConservationLevel)); // 3-10 rounds
+      
+      // DECISION: Use laser if threat level exceeds threshold AND enough rounds have passed
+      const canUseLaser = roundsSinceLastLaser >= minRoundsBetweenLasers || threatLevel > 0.9; // Emergency override
+      const shouldUseBasedOnThreat = threatLevel > this.laserUsageThreshold;
+      
+      if (canUseLaser && shouldUseBasedOnThreat) {
+        shouldUseLaser = true;
+        this.lastLaserUseRound = currentRound;
+      }
+    }
+    
+    return { moveX, moveY, shouldShoot, shouldUseLaser };
+  }
+
+  /**
+   * Predict where an enemy will be in the near future based on its movement pattern
+   * @param enemy The enemy to predict
+   * @param lookAheadFrames How many frames ahead to predict (default 10)
+   * @returns Predicted position {x, y}
+   */
+  private predictEnemyPosition(enemy: Enemy, lookAheadFrames: number = 10): { x: number; y: number } {
+    const enemyBounds = enemy.getBounds();
+    let predictedX = enemyBounds.x + enemyBounds.width / 2;
+    let predictedY = enemyBounds.y + enemyBounds.height / 2;
+    
+    // Use velocity to predict movement
+    const vx = enemy.vx;
+    const vy = enemy.vy;
+    
+    // Check if enemy is breakaway (moving independently with significant velocity)
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    const isBreakaway = speed > 0.5; // Breakaway enemies move faster
+    
+    if (isBreakaway) {
+      // Breakaway enemy: predict based on velocity
+      predictedX += vx * lookAheadFrames;
+      predictedY += vy * lookAheadFrames;
+    } else if (enemy.type === EnemyType.BRAIN) {
+      // BRAIN enemies have wave pattern - estimate wave movement
+      // Wave pattern: oscillates up/down with amplitude 2-5px and frequency 0.02-0.05
+      // We can't access patternTime directly, but we can estimate based on current position
+      // For simplicity, assume they continue their current vertical trend
+      // The wave pattern is relatively slow, so we use a conservative estimate
+      const waveEstimate = Math.sin(lookAheadFrames * 0.03) * 3; // Rough estimate
+      predictedY += waveEstimate;
+      // BRAIN enemies in line still move horizontally with the line
+      predictedX += vx * lookAheadFrames;
+    } else {
+      // Normal line enemy: predict based on line movement (velocity)
+      predictedX += vx * lookAheadFrames;
+      predictedY += vy * lookAheadFrames;
+    }
+    
+    // Clamp to game bounds
+    predictedX = Math.max(0, Math.min(predictedX, 200)); // Assuming gameWidth = 200
+    predictedY = Math.max(0, Math.min(predictedY, 150)); // Assuming gameHeight = 150
+    
+    return { x: predictedX, y: predictedY };
+  }
+  
+  /**
+   * Check if an enemy is a breakaway enemy (moving independently toward player)
+   */
+  private isBreakawayEnemy(enemy: Enemy, playerX: number, playerY: number): boolean {
+    const speed = Math.sqrt(enemy.vx * enemy.vx + enemy.vy * enemy.vy);
+    if (speed < 0.5) return false; // Too slow to be breakaway
+    
+    const enemyBounds = enemy.getBounds();
+    const enemyX = enemyBounds.x + enemyBounds.width / 2;
+    const enemyY = enemyBounds.y + enemyBounds.height / 2;
+    
+    // Check if enemy is moving toward player
+    const dx = playerX - enemyX;
+    const dy = playerY - enemyY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance < 5) return false; // Already very close
+    
+    // Check if velocity is pointing toward player (within 45 degrees)
+    const dotProduct = (dx * enemy.vx + dy * enemy.vy) / (distance * speed);
+    return dotProduct > 0.7; // Moving toward player
+  }
+  
+  /**
+   * Get threat level of an enemy based on type, position, and movement
+   */
+  private getEnemyThreatLevel(
+    enemy: Enemy,
+    playerX: number,
+    playerY: number,
+    predictedPos?: { x: number; y: number }
+  ): number {
+    const enemyBounds = enemy.getBounds();
+    const enemyX = predictedPos ? predictedPos.x : (enemyBounds.x + enemyBounds.width / 2);
+    const enemyY = predictedPos ? predictedPos.y : (enemyBounds.y + enemyBounds.height / 2);
+    
+    const dx = playerX - enemyX;
+    const dy = playerY - enemyY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    let threat = 0;
+    
+    // Base threat from distance (closer = more threatening)
+    if (distance < 30) {
+      threat += 0.5;
+    } else if (distance < 50) {
+      threat += 0.3;
+    } else if (distance < 80) {
+      threat += 0.1;
+    }
+    
+    // Breakaway enemies are more threatening
+    if (this.isBreakawayEnemy(enemy, playerX, playerY)) {
+      threat += 0.4;
+    }
+    
+    // Enemy type modifiers
+    switch (enemy.type) {
+      case EnemyType.HATER:
+        threat += 0.2; // Haters are dangerous
+        break;
+      case EnemyType.BRAIN:
+        threat += 0.15; // Brains have wave patterns (harder to predict)
+        break;
+      case EnemyType.DIAMOND:
+        threat += 0.1; // Diamonds have more health
+        break;
+    }
+    
+    // Enemies above player are less threatening (easier to shoot)
+    if (dy < 0) {
+      threat -= 0.1;
+    }
+    
+    // Enemies directly above are ideal targets (negative threat for positioning)
+    if (Math.abs(dx) < 10 && dy < -20) {
+      threat -= 0.2; // Good target, not a threat
+    }
+    
+    return Math.max(0, Math.min(1, threat)); // Clamp 0-1
+  }
+
+  /**
+   * Update bot for bonus round (maze navigation)
+   * Returns steering direction: -1 = left, 0 = straight, 1 = right
+   * Bot will attempt to collect all lives and lasers while avoiding walls
+   */
+  updateBonusRound(
+    player: Player,
+    bonusMaze: BonusMaze,
+    _gameWidth: number,
+    _gameHeight: number
+  ): { steerLeft: boolean; steerRight: boolean } {
+    const playerBounds = player.getBounds();
+    const playerCenterX = playerBounds.x + playerBounds.width / 2;
+    const playerCenterY = playerBounds.y + playerBounds.height / 2;
+    
+    // Get all uncollected items and walls
+    const walls = bonusMaze.getWalls();
+    const lives = bonusMaze.getLives();
+    const lasers = bonusMaze.getLasers();
+    
+    // Combine all uncollected items (prioritize lives slightly, then lasers)
+    const allItems: Array<{ x: number; y: number; priority: number }> = [];
+    for (const life of lives) {
+      allItems.push({ x: life.x, y: life.y, priority: 1.1 }); // Slight priority for lives
+    }
+    for (const laser of lasers) {
+      allItems.push({ x: laser.x, y: laser.y, priority: 1.0 });
+    }
+    
+    let steerLeft = false;
+    let steerRight = false;
+    
+    // If there are items to collect, navigate to the nearest one
+    if (allItems.length > 0) {
+      // Find nearest item
+      let nearestItem = allItems[0];
+      let nearestDistance = Infinity;
+      
+      for (const item of allItems) {
+        const dx = item.x - playerCenterX;
+        const dy = item.y - playerCenterY;
+        // Weight distance by priority (lower priority = effectively farther)
+        const distance = Math.sqrt(dx * dx + dy * dy) / item.priority;
+        
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestItem = item;
+        }
+      }
+      
+      // Calculate direction to nearest item
+      const dx = nearestItem.x - playerCenterX;
+      
+      // In bonus round, player auto-moves forward (upward), so we only need to steer left/right
+      // We want to align horizontally with the item
+      const horizontalDistance = dx;
+      
+      // Check for walls ahead and to the sides
+      const futureY = playerCenterY - 10; // Player moves up, so check slightly above
+      const safeLeft = this.checkSafePath(playerCenterX - 15, futureY, playerBounds.width, playerBounds.height, walls);
+      const safeRight = this.checkSafePath(playerCenterX + 15, futureY, playerBounds.width, playerBounds.height, walls);
+      const safeCenter = this.checkSafePath(playerCenterX, futureY, playerBounds.width, playerBounds.height, walls);
+      
+      // If moving toward item would hit a wall, try to avoid it
+      const targetX = nearestItem.x;
+      const wouldHitWall = !this.checkSafePath(targetX, futureY, playerBounds.width, playerBounds.height, walls);
+      
+      if (wouldHitWall) {
+        // Wall in the way - try to go around it
+        // Check which side is safer
+        if (safeLeft && !safeRight) {
+          steerLeft = true;
+        } else if (safeRight && !safeLeft) {
+          steerRight = true;
+        } else if (safeLeft && safeRight) {
+          // Both sides safe - choose based on item position
+          if (targetX < playerCenterX) {
+            steerLeft = true;
+          } else {
+            steerRight = true;
+          }
+        } else {
+          // No safe path - try to stay in center if possible
+          if (!safeCenter) {
+            // Even center is blocked - try to find any safe direction
+            if (safeLeft) {
+              steerLeft = true;
+            } else if (safeRight) {
+              steerRight = true;
+            }
+          }
+        }
+      } else {
+        // No wall in direct path - steer toward item
+        if (Math.abs(horizontalDistance) > 3) { // Only steer if not already aligned
+          if (horizontalDistance < 0) {
+            // Item is to the left
+            if (safeLeft || safeCenter) {
+              steerLeft = true;
+            } else if (safeRight) {
+              // Left blocked, go right to find another path
+              steerRight = true;
+            }
+          } else {
+            // Item is to the right
+            if (safeRight || safeCenter) {
+              steerRight = true;
+            } else if (safeLeft) {
+              // Right blocked, go left to find another path
+              steerLeft = true;
+            }
+          }
+        }
+      }
+    } else {
+      // No items left - just navigate to exit (top) while avoiding walls
+      // Stay centered and avoid walls
+      const futureY = playerCenterY - 10;
+      const safeLeft = this.checkSafePath(playerCenterX - 15, futureY, playerBounds.width, playerBounds.height, walls);
+      const safeRight = this.checkSafePath(playerCenterX + 15, futureY, playerBounds.width, playerBounds.height, walls);
+      const safeCenter = this.checkSafePath(playerCenterX, futureY, playerBounds.width, playerBounds.height, walls);
+      
+      // Try to stay centered, but avoid walls
+      if (!safeCenter) {
+        if (safeLeft && !safeRight) {
+          steerLeft = true;
+        } else if (safeRight && !safeLeft) {
+          steerRight = true;
+        } else if (safeLeft && safeRight) {
+          // Both sides safe - stay centered by not steering
+        }
+      }
+    }
+    
+    return { steerLeft, steerRight };
+  }
+  
+  /**
+   * Check if a position is safe (no wall collision)
+   */
+  private checkSafePath(x: number, y: number, width: number, height: number, walls: MazeWall[]): boolean {
+    for (const wall of walls) {
+      if (
+        x < wall.x + wall.width &&
+        x + width > wall.x &&
+        y < wall.y + wall.height &&
+        y + height > wall.y
+      ) {
+        return false; // Would collide with wall
+      }
+    }
+    return true; // Safe path
   }
 }
 
