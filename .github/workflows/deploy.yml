@@ -35,6 +35,15 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
+      
+      - name: Verify build output
+        run: |
+          echo "Build output contents:"
+          ls -la dist/
+          echo "Checking index.html:"
+          head -5 dist/index.html
+          echo "Checking for script tag:"
+          grep -i "script" dist/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
