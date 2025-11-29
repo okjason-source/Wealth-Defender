@@ -211,10 +211,9 @@ export class GameManager {
       console.log('Bot toggled:', this.botAI.isBotActive() ? 'ON' : 'OFF');
     }
     
-    // Set bot to master level with 'M' key
+    // Toggle bot master level with 'M' key
     if (this.input.wasKeyJustPressed('m')) {
-      this.botAI.setMasterLevel();
-      console.log('Bot set to MASTER LEVEL!');
+      this.botAI.toggleMasterLevel();
     }
     
     // Toggle pause with 'P' or 'Escape' key (only if not game over or in transition)

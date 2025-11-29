@@ -57,6 +57,40 @@ export class BotAI {
   }
   
   /**
+   * Reset bot to default starting values (turns off master level)
+   */
+  resetToDefaults(): void {
+    this.reactionSpeed = 1.5;
+    this.avoidanceSkill = 1.4;
+    this.positioningSkill = 1.4;
+    this.aggressionLevel = 0.6;
+    this.saveLearningData();
+    console.log('Bot reset to default values!');
+    console.log('Skills - Reaction:', this.reactionSpeed, 'Avoidance:', this.avoidanceSkill, 'Positioning:', this.positioningSkill, 'Aggression:', this.aggressionLevel);
+  }
+  
+  /**
+   * Toggle master level on/off
+   * If at master level, resets to defaults. Otherwise, sets to master level.
+   */
+  toggleMasterLevel(): void {
+    // Check if currently at master level (all skills at max)
+    const isAtMasterLevel = 
+      this.reactionSpeed >= 2.0 &&
+      this.avoidanceSkill >= 2.0 &&
+      this.positioningSkill >= 2.0 &&
+      this.aggressionLevel >= 0.85;
+    
+    if (isAtMasterLevel) {
+      // Currently at master level - reset to defaults
+      this.resetToDefaults();
+    } else {
+      // Not at master level - set to master level
+      this.setMasterLevel();
+    }
+  }
+  
+  /**
    * Toggle fast learning mode
    */
   setFastLearning(enabled: boolean): void {

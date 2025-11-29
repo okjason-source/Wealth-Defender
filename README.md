@@ -25,7 +25,7 @@ A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel a
 | Targeting Laser | Z key or Left Click |
 | Pause | P or Escape |
 | Toggle Bot | B |
-| Master Bot | M (instantly max bot skills) |
+| Toggle Master Level | M (toggles bot between master level and defaults) |
 
 ## 🚀 Quick Start
 
@@ -113,10 +113,25 @@ The game includes an advanced AI bot that learns and improves:
 
 - **Fast Learning Mode** - 25x faster skill progression (enabled by default)
 - **Adaptive Skills** - Reaction speed, avoidance, and positioning improve over time
-- **Master Mode** - Press `M` to instantly max bot skills
+- **Master Level Toggle** - Press `M` to toggle between master level (max skills) and defaults
 - **Performance Tracking** - Bot learns from each game session
+- **Aggressive Movement** - Rapid evasion, constant horizontal patrol, and quick positioning
+- **Smart Evasion** - Rapid upward movement when enemies descend, then quick return to base
+- **Continuous Movement** - Bot maintains constant movement for better evasion and positioning
 
-The bot's progress is saved to localStorage and persists between sessions.
+### Bot Behavior
+
+The bot uses an intelligent movement system:
+- **Constant Horizontal Patrol** - Continuously sweeps left/right along the base for evasion
+- **Rapid Upward Evasion** - Moves up quickly when enemies descend directly above
+- **Quick Return to Base** - Returns to bottom of screen after evading
+- **Aggressive Positioning** - Faster/longer movements based on aggression level
+- **Never Approaches Enemies** - Maintains safe distance while positioning for optimal shooting
+
+The bot's progress is saved to localStorage and persists between sessions. Use the browser console to access additional bot controls:
+- `window.bot.toggleMasterLevel()` - Toggle master level
+- `window.bot.resetToDefaults()` - Reset bot to default starting values
+- `window.bot.setFastLearning(enabled)` - Toggle fast learning mode
 
 ## 🛠️ Technology Stack
 
