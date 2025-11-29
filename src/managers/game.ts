@@ -58,6 +58,8 @@ export class GameManager {
   private bonusRoundComplete: boolean = false;
   private isPaused: boolean = false;
   private currentSaying: string = '';
+  // FLOCKED! achievement flash timer
+  private flockedTimer: number = 0; // Frames remaining to show FLOCKED! message
   
   // Motivational sayings for round transitions
   private readonly sayings: string[] = [
@@ -344,9 +346,42 @@ export class GameManager {
     
     // Update particles
     this.particleSystem.update();
+
+    // Update FLOCKED! flash timer
+    if (this.flockedTimer > 0) {
+      this.flockedTimer--;
+    }
+
+    // Handle lightning laser destroyed enemies BEFORE checking round completion
+    if (this.player) {
+      const laserDestroyedEnemies = this.player.getLightningLaserDestroyedEnemies();
+      if (laserDestroyedEnemies.length > 0) {
+        for (const enemy of laserDestroyedEnemies) {
+          this.score += this.getEnemyPoints(enemy.type);
+          this.spawningSystem.onEnemyDestroyed();
+          
+          // Create explosion particles at enemy center
+          const center = enemy.getCenter();
+          const explosionColor = this.getExplosionColor(enemy.type);
+          this.particleSystem.createExplosion(center.x, center.y, explosionColor, 8);
+        }
+
+        // If we destroyed 20 or more enemies with a single lightning laser, flash "FLOCKED!"
+        if (laserDestroyedEnemies.length >= 20) {
+          // Show FLOCKED! message for 90 frames (~1.5 seconds at 60 FPS)
+          this.flockedTimer = 90;
+        }
+      }
+    }
     
     // Check round completion (only for normal rounds, not bonus rounds)
-    if (!this.isBonusRound && this.spawningSystem.isRoundComplete()) {
+    // Also ensure we don't end the round while a lightning laser effect is still visible
+    const activeLaserData = this.player ? this.player.getLightningLaserData() : null;
+    if (
+      !this.isBonusRound &&
+      this.spawningSystem.isRoundComplete() &&
+      !activeLaserData
+    ) {
       this.completeRound();
       return;
     }
@@ -373,20 +408,6 @@ export class GameManager {
       
       // Award points for destroyed enemies and create explosions
       for (const enemy of collisionResult.enemiesHit) {
-        this.score += this.getEnemyPoints(enemy.type);
-        this.spawningSystem.onEnemyDestroyed();
-        
-        // Create explosion particles at enemy center
-        const center = enemy.getCenter();
-        const explosionColor = this.getExplosionColor(enemy.type);
-        this.particleSystem.createExplosion(center.x, center.y, explosionColor, 8);
-      }
-    }
-    
-    // Handle lightning laser destroyed enemies
-    if (this.player) {
-      const laserDestroyedEnemies = this.player.getLightningLaserDestroyedEnemies();
-      for (const enemy of laserDestroyedEnemies) {
         this.score += this.getEnemyPoints(enemy.type);
         this.spawningSystem.onEnemyDestroyed();
         
@@ -658,6 +679,18 @@ export class GameManager {
     
     // Draw HUD (only if not game over)
     this.drawHUD();
+
+    // Draw FLOCKED! achievement flash (on top of HUD but below transitions/overlays)
+    if (this.flockedTimer > 0) {
+      this.renderer.drawText(
+        'FLOCKED!',
+        this.gameWidth / 2,
+        40,
+        Palette.NEON_PURPLE,
+        1.2,
+        'center'
+      );
+    }
     
     // Draw round transition message
     if (this.isInRoundTransition) {

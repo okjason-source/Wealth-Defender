@@ -28,8 +28,8 @@ export class BotAI {
   private aggressionLevel: number = 0.6; // How aggressively it targets/shoots enemies (0-1) - NOT about moving closer
   
   // Laser usage parameters
-  private laserConservationLevel: number = 0.7; // How conservative with lasers (0-1, higher = more conservative)
-  private laserUsageThreshold: number = 0.6; // Threshold for using lasers (0-1, higher = only in emergencies)
+  private laserConservationLevel: number = 0.4; // How conservative with lasers (0-1, higher = more conservative) - Lowered for more freedom
+  private laserUsageThreshold: number = 0.5; // Threshold for using lasers (0-1, higher = only in emergencies) - Lowered for more strategic use
   private lastLaserUseRound: number = 0; // Track which round lasers were last used
   
   // Fast learning mode - dramatically increases learning rates
@@ -123,8 +123,8 @@ export class BotAI {
         this.avoidanceSkill = data.avoidanceSkill || 1.4;
         this.positioningSkill = data.positioningSkill || 1.4;
         this.aggressionLevel = data.aggressionLevel || 0.6;
-        this.laserConservationLevel = data.laserConservationLevel !== undefined ? data.laserConservationLevel : 0.7;
-        this.laserUsageThreshold = data.laserUsageThreshold !== undefined ? data.laserUsageThreshold : 0.6;
+        this.laserConservationLevel = data.laserConservationLevel !== undefined ? data.laserConservationLevel : 0.4;
+        this.laserUsageThreshold = data.laserUsageThreshold !== undefined ? data.laserUsageThreshold : 0.5;
         this.lastLaserUseRound = data.lastLaserUseRound || 0;
         this.fastLearningMode = data.fastLearningMode !== undefined ? data.fastLearningMode : true;
         this.learningMultiplier = this.fastLearningMode ? 25.0 : 1.0;
@@ -140,8 +140,8 @@ export class BotAI {
         this.avoidanceSkill = 1.4;
         this.positioningSkill = 1.4;
         this.aggressionLevel = 0.6;
-        this.laserConservationLevel = 0.7;
-        this.laserUsageThreshold = 0.6;
+        this.laserConservationLevel = 0.4;
+        this.laserUsageThreshold = 0.5;
         this.lastLaserUseRound = 0;
         this.fastLearningMode = true;
         this.learningMultiplier = 25.0;
@@ -924,15 +924,21 @@ export class BotAI {
       // Clamp threat level to 0-1
       threatLevel = Math.min(1.0, threatLevel);
       
-      // CONSERVATION: Don't use lasers too frequently
+      // CONSERVATION: Don't use lasers too frequently (but allow more strategic use)
       const roundsSinceLastLaser = currentRound - this.lastLaserUseRound;
-      const minRoundsBetweenLasers = Math.max(3, Math.floor(10 * this.laserConservationLevel)); // 3-10 rounds
+      const minRoundsBetweenLasers = Math.max(2, Math.floor(8 * this.laserConservationLevel)); // 2-3 rounds (reduced from 3-7)
       
       // DECISION: Use laser if threat level exceeds threshold AND enough rounds have passed
-      const canUseLaser = roundsSinceLastLaser >= minRoundsBetweenLasers || threatLevel > 0.9; // Emergency override
+      // More permissive: allow use if threat is moderate-high OR emergency situation
+      const canUseLaser = roundsSinceLastLaser >= minRoundsBetweenLasers || threatLevel > 0.85; // Emergency override (lowered from 0.9)
       const shouldUseBasedOnThreat = threatLevel > this.laserUsageThreshold;
       
-      if (canUseLaser && shouldUseBasedOnThreat) {
+      // Additional factor: If we have many lasers (3+), be slightly more willing to use them
+      const laserAbundanceBonus = laserCount >= 3 ? 0.05 : 0; // Small bonus if we have plenty
+      const adjustedThreatLevel = threatLevel + laserAbundanceBonus;
+      
+      // Use laser if conditions are met (with adjusted threat level for abundance)
+      if (canUseLaser && (adjustedThreatLevel > this.laserUsageThreshold || shouldUseBasedOnThreat)) {
         shouldUseLaser = true;
         this.lastLaserUseRound = currentRound;
       }
