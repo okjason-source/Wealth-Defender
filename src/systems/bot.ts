@@ -1138,50 +1138,88 @@ export class BotAI {
       const safeRight = this.checkSafePath(playerCenterX + 15, futureY, playerBounds.width, playerBounds.height, walls);
       const safeCenter = this.checkSafePath(playerCenterX, futureY, playerBounds.width, playerBounds.height, walls);
       
-      // If moving toward item would hit a wall, try to avoid it
+      // If moving toward item would hit a wall, prioritize safety - don't risk it
       const targetX = nearestItem.x;
-      const wouldHitWall = !this.checkSafePath(targetX, futureY, playerBounds.width, playerBounds.height, walls);
+      const safetyMargin = 3; // Add safety margin to avoid walls
+      const wouldHitWall = !this.checkSafePath(
+        targetX, 
+        futureY, 
+        playerBounds.width + safetyMargin, 
+        playerBounds.height, 
+        walls
+      );
       
-      if (wouldHitWall) {
-        // Wall in the way - try to go around it
-        // Check which side is safer
+      // Also check if the path to the item is safe at multiple points
+      const itemY = nearestItem.y;
+      const stepsToItem = Math.max(3, Math.ceil(Math.abs(itemY - playerCenterY) / 5));
+      let hasSafePathToItem = true;
+      
+      // Check path at multiple points between player and item
+      for (let step = 1; step <= stepsToItem && step <= 8; step++) {
+        const t = step / stepsToItem;
+        const checkX = playerCenterX + (targetX - playerCenterX) * t;
+        const checkY = playerCenterY - (playerCenterY - itemY) * t;
+        
+        if (!this.checkSafePath(
+          checkX - safetyMargin, 
+          checkY, 
+          playerBounds.width + safetyMargin * 2, 
+          playerBounds.height, 
+          walls
+        )) {
+          hasSafePathToItem = false;
+          break;
+        }
+      }
+      
+      if (wouldHitWall || !hasSafePathToItem) {
+        // Wall in the way or unsafe path - prioritize safety, don't go toward item
+        // Choose safest available direction away from the wall
         if (safeLeft && !safeRight) {
           steerLeft = true;
         } else if (safeRight && !safeLeft) {
           steerRight = true;
         } else if (safeLeft && safeRight) {
-          // Both sides safe - choose based on item position
-          if (targetX < playerCenterX) {
-            steerLeft = true;
+          // Both sides safe - move away from the item/wall
+          if (safeCenter) {
+            // Center is safe, stay centered (don't risk going toward wall)
           } else {
-            steerRight = true;
+            // Center blocked, choose side away from item (safer)
+            if (targetX < playerCenterX) {
+              steerRight = true; // Item on left, go right to avoid wall
+            } else {
+              steerLeft = true; // Item on right, go left to avoid wall
+            }
           }
         } else {
           // No safe path - try to stay in center if possible
-          if (!safeCenter) {
-            // Even center is blocked - try to find any safe direction
-            if (safeLeft) {
-              steerLeft = true;
-            } else if (safeRight) {
-              steerRight = true;
-            }
+          if (safeCenter) {
+            // Stay centered, don't risk it
+          } else if (safeLeft) {
+            steerLeft = true;
+          } else if (safeRight) {
+            steerRight = true;
           }
         }
       } else {
-        // No wall in direct path - steer toward item
-        if (Math.abs(horizontalDistance) > 3) { // Only steer if not already aligned
+        // Safe path to item - steer toward it, but only if safe
+        if (Math.abs(horizontalDistance) > 3) {
           if (horizontalDistance < 0) {
             // Item is to the left
-            if (safeLeft || safeCenter) {
+            if (safeLeft) {
               steerLeft = true;
+            } else if (safeCenter && !safeRight) {
+              // Can't go left safely, stay center
             } else if (safeRight) {
               // Left blocked, go right to find another path
               steerRight = true;
             }
           } else {
             // Item is to the right
-            if (safeRight || safeCenter) {
+            if (safeRight) {
               steerRight = true;
+            } else if (safeCenter && !safeLeft) {
+              // Can't go right safely, stay center
             } else if (safeLeft) {
               // Right blocked, go left to find another path
               steerLeft = true;

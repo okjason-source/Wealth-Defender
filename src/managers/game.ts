@@ -463,6 +463,9 @@ export class GameManager {
   private updateBonusRound(_deltaTime: number): void {
     if (!this.bonusMaze || !this.player) return;
     
+    // If bonus round is already complete, don't process anything
+    if (this.bonusRoundComplete) return;
+    
     const playerBounds = this.player.getBounds();
     
     // Get steering input (left/right only)
@@ -510,70 +513,66 @@ export class GameManager {
       updatedBounds.width,
       updatedBounds.height
     )) {
-      // Hit a wall - lose a life and restart bonus round
-      this.lives--;
-      if (this.lives <= 0) {
-        this.handleGameOver();
-        return;
-      }
-      // Reset bonus round
-      this.bonusMaze.reset();
-      this.player.x = this.gameWidth / 2 - updatedBounds.width / 2;
-      this.player.y = this.gameHeight - 5;
-      // Give brief invincibility after respawn
-      this.invincibilityTimer = 30;
+      // Hit a wall - bonus round ends immediately, move to next round with whatever was collected
+      this.bonusRoundComplete = true;
+      // Award bonus points (even if wall was hit)
+      const bonusPoints = 500;
+      this.score += bonusPoints;
+      // Immediately transition to next round (no delay to prevent glitch)
+      this.completeRound();
       return;
     }
     
-    // Check for life collection (using NEW position)
-    const livesCollected = this.bonusMaze.checkLifeCollection(
-      updatedBounds.x,
-      updatedBounds.y,
-      updatedBounds.width,
-      updatedBounds.height
-    );
-    if (livesCollected > 0) {
-      // Collected free lives!
-      this.lives += livesCollected;
-      // Create celebration particles
-      const center = {
-        x: updatedBounds.x + updatedBounds.width / 2,
-        y: updatedBounds.y + updatedBounds.height / 2
-      };
-      this.particleSystem.createConfettiExplosion(center.x, center.y, 16);
-    }
-    
-    // Check for laser collection (using NEW position)
-    const lasersCollected = this.bonusMaze.checkLaserCollection(
-      updatedBounds.x,
-      updatedBounds.y,
-      updatedBounds.width,
-      updatedBounds.height
-    );
-    if (lasersCollected > 0) {
-      // Collected lasers!
-      if (this.player) {
-        this.player.addLasers(lasersCollected);
+    // Only check for item collection if bonus round is still active
+    if (!this.bonusRoundComplete) {
+      // Check for life collection (using NEW position)
+      const livesCollected = this.bonusMaze.checkLifeCollection(
+        updatedBounds.x,
+        updatedBounds.y,
+        updatedBounds.width,
+        updatedBounds.height
+      );
+      if (livesCollected > 0) {
+        // Collected free lives!
+        this.lives += livesCollected;
         // Create celebration particles
         const center = {
           x: updatedBounds.x + updatedBounds.width / 2,
           y: updatedBounds.y + updatedBounds.height / 2
         };
-        this.particleSystem.createConfettiExplosion(center.x, center.y, 12);
+        this.particleSystem.createConfettiExplosion(center.x, center.y, 16);
+      }
+      
+      // Check for laser collection (using NEW position)
+      const lasersCollected = this.bonusMaze.checkLaserCollection(
+        updatedBounds.x,
+        updatedBounds.y,
+        updatedBounds.width,
+        updatedBounds.height
+      );
+      if (lasersCollected > 0) {
+        // Collected lasers!
+        if (this.player) {
+          this.player.addLasers(lasersCollected);
+          // Create celebration particles
+          const center = {
+            x: updatedBounds.x + updatedBounds.width / 2,
+            y: updatedBounds.y + updatedBounds.height / 2
+          };
+          this.particleSystem.createConfettiExplosion(center.x, center.y, 12);
+        }
       }
     }
     
-    // Check for exit (reached top) (using NEW position)
-    if (this.bonusMaze.checkExit(updatedBounds.y)) {
+    // Check for exit (reached top) (using NEW position) - only if round not already complete
+    if (!this.bonusRoundComplete && this.bonusMaze.checkExit(updatedBounds.y)) {
       // Bonus round complete!
       this.bonusRoundComplete = true;
       // Award bonus points
       const bonusPoints = 500;
       this.score += bonusPoints;
-      // Transition to next round after a brief delay
-      setTimeout(() => {
-        this.completeRound();
-      }, 1000);
+      // Immediately transition to next round
+      this.completeRound();
     }
   }
   
