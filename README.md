@@ -156,32 +156,6 @@ The bot's progress is saved to localStorage and persists between sessions. Use t
 - ✅ AI bot with learning system
 - ✅ Bonus maze rounds
 
-## 🌐 Deployment
-
-### GitHub Pages
-
-1. Update `vite.config.ts` with your repository name:
-```typescript
-export default defineConfig({
-  base: '/Wealth-Defender/', // Matches repository name
-  // ... rest of config
-});
-```
-
-2. Build the project:
-```bash
-npm run build
-```
-
-3. Deploy the `dist/` folder to GitHub Pages
-
-### Other Platforms
-
-The game can be deployed to:
-- **Netlify** - Drag and drop `dist/` folder
-- **Vercel** - Connect GitHub repo for auto-deployment
-- **Any static hosting** - Upload `dist/` folder contents
-
 ## 📄 License
 
 This project is open source and available under the [MIT License](LICENSE).
