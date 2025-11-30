@@ -127,7 +127,7 @@ export class BotAI {
    */
   private loadLearningData(): void {
     try {
-      const saved = localStorage.getItem('round42_bot_learning');
+      const saved = localStorage.getItem('round50_bot_learning');
       if (saved) {
         const data = JSON.parse(saved);
         this.gamesPlayed = data.gamesPlayed || 0;
@@ -212,7 +212,7 @@ export class BotAI {
           total: data.total
         })),
       };
-      localStorage.setItem('round42_bot_learning', JSON.stringify(data));
+      localStorage.setItem('round50_bot_learning', JSON.stringify(data));
     } catch (e) {
       console.warn('Failed to save bot learning data:', e);
     }

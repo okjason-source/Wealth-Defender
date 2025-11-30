@@ -150,18 +150,6 @@ export class Enemy {
         // Progressive cooldown: Cycle 1 = 180, Cycle 2 = 170, ... Cycle 9 = 100
         this.shootCooldownMax = 180 - ((cycle - 1) * 10);
         break;
-      case EnemyType.DOLLAR_BILL:
-        // Progressive shooting: Cycle 1 = 26%, Cycle 2 = 28%, ... Cycle 9 = 42%
-        this.shootChance = 0.26 + ((cycle - 1) * 0.02);
-        // Progressive cooldown: Cycle 1 = 195, Cycle 2 = 185, ... Cycle 9 = 115
-        this.shootCooldownMax = 195 - ((cycle - 1) * 10);
-        break;
-      case EnemyType.DIAMOND:
-        // Progressive shooting: Cycle 1 = 27%, Cycle 2 = 29%, ... Cycle 9 = 43%
-        this.shootChance = 0.27 + ((cycle - 1) * 0.02);
-        // Progressive cooldown: Cycle 1 = 192, Cycle 2 = 182, ... Cycle 9 = 112
-        this.shootCooldownMax = 192 - ((cycle - 1) * 10);
-        break;
     }
   }
   

@@ -11,6 +11,8 @@ export interface WavePattern {
   spawnDelay: number; // Frames between each spawn in this wave
   formation: 'line' | 'column' | 'grid' | 'random' | 'v' | 'diamond' | 'meteor';
   spacing: number;
+  rowIndex?: number; // Which row this is (0-3) for vertical stacking
+  rowY?: number; // Y position for this row
 }
 
 export interface RoundDefinition {
@@ -117,15 +119,14 @@ export class SpawningSystem {
     
     // For line formation, spawn entire row at once (only on first index)
     if (wave.formation === 'line' && index === 0) {
-      // CRITICAL: ALL enemies must start at the very top (y=0) for playability
-      // Even with multiple rows, they should all start at the top
-      // The vertical spacing was causing enemies to start too low, making rounds unplayable
-      const finalYPos = 0; // Always start at the very top - DO NOT CHANGE
+      // Use the row Y position if specified, otherwise default to top
+      // Rows are stacked vertically: row 0 at top, row 1 below it, etc.
+      const finalYPos = wave.rowY !== undefined ? wave.rowY : 0;
       
       const breakChance = 0.0005 + (this.currentRound * 0.0001);
       
       // Calculate speed multiplier based on round (starts at 1.0, increases with each round)
-      // Round 1: 1.0x, Round 10: ~1.5x, Round 20: ~2.0x, Round 42: ~3.0x
+      // Round 1: 1.0x, Round 10: ~1.5x, Round 20: ~2.0x, Round 42: ~3.0x, Round 50: ~3.45x
       const speedMultiplier = 1.0 + ((this.currentRound - 1) * 0.05);
       
       // Cycle 2 (rounds 5-8) and beyond can shoot projectiles
@@ -152,9 +153,10 @@ export class SpawningSystem {
   generateRoundDefinition(round: number): RoundDefinition {
     const waves: WavePattern[] = [];
     
-    // 42 rounds total:
+    // 50 rounds total:
     // - Rounds 1-36: Each of 4 types cycles 9 times (4 types × 9 = 36 rounds)
-    // - Rounds 37-42: Mixed types (6 rounds)
+    // - Rounds 37-42: Mixed types (6 rounds) - Coins, Dollar Bills, Diamonds, Haters
+    // - Rounds 43-50: Mixed types with brains (8 rounds) - Includes brains with other types
     
     // Brain replacement levels: 
     // Level 3 (diamonds), 5 (coins), 10 (dollars), 16 (haters), 19 (diamonds), 
@@ -164,6 +166,7 @@ export class SpawningSystem {
     
     let enemyType: EnemyType;
     let isMixed = false;
+    let includeBrainsInMixed = false; // Flag for rounds 43-50 to include brains in mixed
     
     if (round <= 36) {
       // Cycles: Each type appears 9 times
@@ -182,121 +185,204 @@ export class SpawningSystem {
       if (isBrainLevel) {
         enemyType = EnemyType.BRAIN;
       }
-    } else {
-      // Rounds 37-42: Mixed types
+    } else if (round <= 42) {
+      // Rounds 37-42: Mixed types (no brains)
       isMixed = true;
+      includeBrainsInMixed = false;
+      enemyType = EnemyType.COIN; // Default, but we'll handle mixed separately
+    } else {
+      // Rounds 43-50: Mixed types with brains
+      isMixed = true;
+      includeBrainsInMixed = true;
       enemyType = EnemyType.COIN; // Default, but we'll handle mixed separately
     }
     
-    // Enemy count progression:
-    // Cycle 1 (rounds 1-4): 10 enemies
-    // Cycle 2 (rounds 5-8): 20 enemies
-    // Cycle 3 (rounds 9-12): 30 enemies
+    // Enemy count progression (DOUBLED from original):
+    // Cycle 1 (rounds 1-4): 20 enemies (was 10)
+    // Cycle 2 (rounds 5-8): 40 enemies (was 20)
+    // Cycle 3 (rounds 9-12): 60 enemies (was 30)
     // ...
-    // Cycle 9 (rounds 33-36): 90 enemies
-    // Mixed (rounds 37-42): 100 enemies
+    // Cycle 9 (rounds 33-36): 180 enemies (was 90)
+    // Mixed (rounds 37-42): 200 enemies (was 100)
+    // Mixed with brains (rounds 43-50): Progressive from 200 to 340 enemies
+    
+    // Calculate cycle for row distribution
+    const cycle = round <= 36 ? Math.floor((round - 1) / 4) + 1 : Math.floor((round - 1) / 4) + 1;
     
     let enemiesPerRow: number;
     if (round <= 36) {
-      const cycle = Math.floor((round - 1) / 4) + 1; // Which cycle (1-9)
-      enemiesPerRow = cycle * 10; // 10, 20, 30, ..., 90
+      enemiesPerRow = cycle * 20; // 20, 40, 60, ..., 180 (doubled)
+    } else if (round <= 42) {
+      enemiesPerRow = 200; // Mixed rounds (doubled from 100)
     } else {
-      enemiesPerRow = 100; // Mixed rounds
+      // Mixed rounds with brains 43-50: Progressive difficulty
+      // Round 43: 200, 44: 220, 45: 240, 46: 260, 47: 280, 48: 300, 49: 320, 50: 340
+      const mixedBrainRoundIndex = round - 42; // 1-8
+      enemiesPerRow = 200 + (mixedBrainRoundIndex - 1) * 20;
     }
     
-    // Determine number of rows based on enemy count
-    // More enemies = more rows to fit them on screen
-    let rowsPerRound = 1;
-    if (enemiesPerRow > 20) {
-      rowsPerRound = 2;
+    // Smart row system: Progressive rows based on cycle
+    // Each row fits max 20 enemies (ideal), rows are stacked vertically
+    // Cycle 1 (rounds 1-4): 1 row of 20
+    // Cycle 2 (rounds 5-8): 2 rows of 20
+    // Cycle 3 (rounds 9-12): 3 rows of 20
+    // Cycle 4+ (rounds 13+): 4 rows (some rows may have more than 20 if needed)
+    const enemiesPerRowMax = 20; // Maximum enemies per row (ideal target)
+    let rowsPerRound: number;
+    
+    if (cycle === 1) {
+      rowsPerRound = 1; // 1 row of 20
+    } else if (cycle === 2) {
+      rowsPerRound = 2; // 2 rows of 20
+    } else if (cycle === 3) {
+      rowsPerRound = 3; // 3 rows of 20
+    } else {
+      rowsPerRound = 4; // 4 rows (may have more than 20 per row if needed)
     }
-    if (enemiesPerRow > 50) {
-      rowsPerRound = 3;
-    }
-    if (enemiesPerRow >= 100) {
-      rowsPerRound = 4; // Multiple rows for 100 enemies
-    }
+    
+    // Calculate vertical spacing between rows (stack them on top of each other)
+    const rowSpacing = 20; // Vertical spacing between rows
+    const topMargin = 5; // Start at top of screen (same as score position)
     
     // Spawn rows with specified enemy count per row
     if (isMixed && round >= 37) {
       // Mixed rounds: spawn different types in different rows
-      const mixedTypes = [
-        EnemyType.COIN,
-        EnemyType.DOLLAR_BILL,
-        EnemyType.DIAMOND,
-        EnemyType.HATER,
-      ];
-      const enemiesPerMixedRow = Math.ceil(enemiesPerRow / rowsPerRound);
-      
+      let mixedTypes: EnemyType[];
+      if (includeBrainsInMixed) {
+        // Rounds 43-50: Include brains in the mix (5 types total)
+        mixedTypes = [
+          EnemyType.COIN,
+          EnemyType.DOLLAR_BILL,
+          EnemyType.DIAMOND,
+          EnemyType.HATER,
+          EnemyType.BRAIN,
+        ];
+      } else {
+        // Rounds 37-42: Regular mixed types (4 types, no brains)
+        mixedTypes = [
+          EnemyType.COIN,
+          EnemyType.DOLLAR_BILL,
+          EnemyType.DIAMOND,
+          EnemyType.HATER,
+        ];
+      }
+      // Distribute enemies across rows
+      // Strategy: Keep last 3 rows at 20 each, put remainder in 1st row (top, furthest from player)
+      // Distribute from top (row 0) first
       for (let row = 0; row < rowsPerRound; row++) {
-        const typeForRow = mixedTypes[row % 4]; // Cycle through types
-        // Check if coins >= 50 for meteor formation
-        const useMeteor = typeForRow === EnemyType.COIN && enemiesPerMixedRow >= 50;
+        let enemiesForThisRow: number;
+        if (cycle <= 3) {
+          // Cycles 1-3: Even distribution, max 20 per row
+          enemiesForThisRow = Math.min(enemiesPerRowMax, Math.ceil(enemiesPerRow / rowsPerRound));
+        } else {
+          // Cycle 4+: Keep last 3 rows at 20, remainder goes to 1st row (top)
+          if (row === 0) {
+            // 1st row (top, furthest from player) gets the remainder
+            const lastThreeRowsTotal = 3 * enemiesPerRowMax; // 60 enemies
+            enemiesForThisRow = Math.max(0, enemiesPerRow - lastThreeRowsTotal);
+          } else {
+            enemiesForThisRow = enemiesPerRowMax; // Last 3 rows get 20 each
+          }
+        }
+        
+        const typeForRow = mixedTypes[row % mixedTypes.length]; // Cycle through types
+        // Check if coins >= 100 for meteor formation (doubled from 50)
+        const useMeteor = typeForRow === EnemyType.COIN && enemiesForThisRow >= 100;
         // Haters get tighter spacing for more intense gameplay
         const spacing = typeForRow === EnemyType.HATER 
           ? Math.max(6, 14 - Math.floor(enemiesPerRow / 20))
           : Math.max(8, 18 - Math.floor(enemiesPerRow / 15));
+        // Calculate Y position for this row (stacked vertically, row 0 is top/furthest from player)
+        const rowY = topMargin + (row * rowSpacing);
         waves.push({
           enemyType: typeForRow,
-          count: enemiesPerMixedRow,
+          count: enemiesForThisRow,
           spawnDelay: useMeteor ? 15 : 0, // Spawn delay for meteor formation (continuous drops)
           formation: useMeteor ? 'meteor' : 'line',
           spacing: spacing,
+          rowIndex: row,
+          rowY: rowY,
         });
       }
     } else {
       // Single type rounds: distribute enemies across rows
-      const enemiesPerRowActual = Math.ceil(enemiesPerRow / rowsPerRound);
+      // Strategy: Keep first 3 rows at 20 each, put remainder in 4th row (bottom, closest to player)
+      // Distribute from top (row 0) first
       
-      // Check if coins >= 50 for meteor formation
-      const useMeteor = enemyType === EnemyType.COIN && enemiesPerRow >= 50;
+      // Check if coins >= 100 for meteor formation (doubled from 50)
+      const useMeteor = enemyType === EnemyType.COIN && enemiesPerRow >= 100;
       
       if (useMeteor) {
         // Meteor formation: spawn individual coins continuously
-        for (let i = 0; i < enemiesPerRowActual; i++) {
+        // Meteors spawn from top, distribute total count across spawns
+        const totalMeteorSpawns = enemiesPerRow; // Total number of meteors to spawn
+        for (let i = 0; i < totalMeteorSpawns; i++) {
           waves.push({
             enemyType: enemyType,
             count: 1, // Spawn one at a time
             spawnDelay: 15, // Delay between each coin drop (creates continuous rain)
             formation: 'meteor',
             spacing: 0, // Not used for meteor
-          });
-        }
-      } else if (enemyType === EnemyType.HATER) {
-        // Haters: spawn in tighter formation for left-to-right wrap-around pattern
-        // More enemies per row, tighter spacing for more intense gameplay
-        const haterSpacing = Math.max(6, 14 - Math.floor(enemiesPerRow / 20)); // Tighter spacing
-        for (let row = 0; row < rowsPerRound; row++) {
-          waves.push({
-            enemyType: enemyType,
-            count: enemiesPerRowActual,
-            spawnDelay: 0,
-            formation: 'line',
-            spacing: haterSpacing, // Tighter spacing for haters
-          });
-        }
-      } else if (enemyType === EnemyType.BRAIN) {
-        // Brains: spawn in line formation with wave movement pattern
-        const brainSpacing = Math.max(8, 18 - Math.floor(enemiesPerRow / 15));
-        for (let row = 0; row < rowsPerRound; row++) {
-          waves.push({
-            enemyType: enemyType,
-            count: enemiesPerRowActual,
-            spawnDelay: 0,
-            formation: 'line',
-            spacing: brainSpacing,
+            rowIndex: 0, // Meteors spawn at top
+            rowY: topMargin,
           });
         }
       } else {
-        // Normal line formation for other types
+        // Calculate enemies per row based on distribution strategy
         for (let row = 0; row < rowsPerRound; row++) {
-          waves.push({
-            enemyType: enemyType,
-            count: enemiesPerRowActual,
-            spawnDelay: 0,
-            formation: 'line',
-            spacing: Math.max(8, 18 - Math.floor(enemiesPerRow / 15)), // Tighter spacing for more enemies
-          });
+          let enemiesForThisRow: number;
+          if (cycle <= 3) {
+            // Cycles 1-3: Even distribution, max 20 per row
+            enemiesForThisRow = Math.min(enemiesPerRowMax, Math.ceil(enemiesPerRow / rowsPerRound));
+          } else {
+            // Cycle 4+: Keep last 3 rows at 20, remainder goes to 1st row (top, furthest from player)
+            if (row === 0) {
+              // 1st row (top, furthest from player) gets the remainder
+              const lastThreeRowsTotal = 3 * enemiesPerRowMax; // 60 enemies
+              enemiesForThisRow = Math.max(0, enemiesPerRow - lastThreeRowsTotal);
+            } else {
+              enemiesForThisRow = enemiesPerRowMax; // Last 3 rows get 20 each
+            }
+          }
+          
+          const rowY = topMargin + (row * rowSpacing);
+          
+          if (enemyType === EnemyType.HATER) {
+            // Haters: spawn in tighter formation for left-to-right wrap-around pattern
+            const haterSpacing = Math.max(6, 14 - Math.floor(enemiesPerRow / 20)); // Tighter spacing
+            waves.push({
+              enemyType: enemyType,
+              count: enemiesForThisRow,
+              spawnDelay: 0,
+              formation: 'line',
+              spacing: haterSpacing,
+              rowIndex: row,
+              rowY: rowY,
+            });
+          } else if (enemyType === EnemyType.BRAIN) {
+            // Brains: spawn in line formation with wave movement pattern
+            const brainSpacing = Math.max(8, 18 - Math.floor(enemiesPerRow / 15));
+            waves.push({
+              enemyType: enemyType,
+              count: enemiesForThisRow,
+              spawnDelay: 0,
+              formation: 'line',
+              spacing: brainSpacing,
+              rowIndex: row,
+              rowY: rowY,
+            });
+          } else {
+            // Normal line formation for other types (diamonds, coins, dollar bills)
+            waves.push({
+              enemyType: enemyType,
+              count: enemiesForThisRow,
+              spawnDelay: 0,
+              formation: 'line',
+              spacing: Math.max(8, 18 - Math.floor(enemiesPerRow / 15)), // Tighter spacing for more enemies
+              rowIndex: row,
+              rowY: rowY,
+            });
+          }
         }
       }
     }

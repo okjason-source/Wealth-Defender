@@ -335,6 +335,104 @@ export class PixelRenderer {
   }
   
   /**
+   * Draw text with animated golden block effect (8-bit style, big blocks)
+   */
+  drawGoldenBlockText(text: string, x: number, y: number, size: number = 1, align: 'left' | 'center' | 'right' = 'left', time: number = 0): void {
+    const fontWeight = 'bold ';
+    const fontSize = size * this.pixelSize * 8;
+    this.ctx.font = `${fontWeight}${fontSize}px 'Courier New', monospace`;
+    this.ctx.textBaseline = 'top';
+    this.ctx.textAlign = align;
+    
+    // Calculate draw position
+    let drawX = x * this.pixelSize;
+    if (align === 'center') {
+      drawX = x * this.pixelSize;
+    } else if (align === 'right') {
+      drawX = x * this.pixelSize;
+    }
+    const drawY = y * this.pixelSize;
+    
+    // Golden color palette (various shades of gold)
+    const goldColors = [
+      '#FFD700', // Gold
+      '#FFA500', // Orange gold
+      '#FFC125', // Goldenrod
+      '#FFD700', // Gold
+      '#FFE135', // Banana yellow
+      '#FFD700', // Gold
+      '#FFA500', // Orange gold
+      '#FFC125', // Goldenrod
+    ];
+    
+    // Animated pulse effect (size oscillation)
+    const pulse = 1 + Math.sin(time * 0.1) * 0.1; // Pulse between 0.9 and 1.1
+    const currentSize = size * pulse;
+    
+    // Draw multiple layers for blocky 8-bit effect
+    const layers = 5;
+    for (let layer = layers; layer > 0; layer--) {
+      const offset = layer * 1.5;
+      const alpha = (1 - (layer / layers)) * 0.8;
+      const layerSize = currentSize * (1 + layer * 0.05);
+      
+      // Cycle through gold colors based on time and layer
+      const colorIndex = (Math.floor(time * 0.2) + layer) % goldColors.length;
+      const goldColor = goldColors[colorIndex];
+      
+      const oldAlpha = this.ctx.globalAlpha;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.fillStyle = goldColor;
+      this.ctx.font = `${fontWeight}${layerSize * this.pixelSize * 8}px 'Courier New', monospace`;
+      
+      // Draw blocky shadow layers (offset in all directions)
+      const offsets = [
+        { x: -offset, y: -offset },
+        { x: offset, y: -offset },
+        { x: -offset, y: offset },
+        { x: offset, y: offset },
+        { x: 0, y: -offset },
+        { x: 0, y: offset },
+        { x: -offset, y: 0 },
+        { x: offset, y: 0 },
+      ];
+      
+      for (const off of offsets) {
+        this.ctx.fillText(
+          text,
+          drawX + off.x,
+          drawY + off.y
+        );
+      }
+      
+      this.ctx.globalAlpha = oldAlpha;
+    }
+    
+    // Draw main text with brightest gold
+    this.ctx.globalAlpha = 1.0;
+    this.ctx.fillStyle = '#FFD700';
+    this.ctx.font = `${fontWeight}${currentSize * this.pixelSize * 8}px 'Courier New', monospace`;
+    this.ctx.fillText(text, drawX, drawY);
+    
+    // Add sparkle effect (random golden pixels)
+    const sparkleCount = 20;
+    for (let i = 0; i < sparkleCount; i++) {
+      const sparkleX = drawX + (Math.sin(time * 0.3 + i) * 50);
+      const sparkleY = drawY + (Math.cos(time * 0.2 + i * 0.5) * 30);
+      const sparkleAlpha = (Math.sin(time * 0.5 + i) + 1) / 2;
+      
+      this.ctx.globalAlpha = sparkleAlpha * 0.8;
+      this.ctx.fillStyle = goldColors[i % goldColors.length];
+      this.ctx.fillRect(sparkleX, sparkleY, 2, 2);
+    }
+    
+    this.ctx.globalAlpha = 1.0;
+    
+    // Reset text alignment to default
+    this.ctx.textAlign = 'left';
+  }
+  
+  /**
    * Get canvas context for advanced operations
    */
   getContext(): CanvasRenderingContext2D {

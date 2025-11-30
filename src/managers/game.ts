@@ -42,7 +42,7 @@ export class GameManager {
   
   // Game state
   private score: number = 0;
-  private lives: number = 3;
+  private lives: number = 1;
   private round: number = 1;
   private roundTransitionTimer: number = 0;
   private roundTransitionDuration: number = 120; // Frames to show round transition
@@ -55,6 +55,8 @@ export class GameManager {
   private isGameOver: boolean = false;
   private gameOverTimer: number = 0; // Timer before allowing restart (5 seconds = 300 frames at 60fps)
   private gameOverDelay: number = 300; // 5 seconds at 60fps
+  private isVictory: boolean = false;
+  private victoryTimer: number = 0; // Timer for victory animation
   private highScore: number = 0;
   private isBonusRound: boolean = false;
   private bonusRoundComplete: boolean = false;
@@ -110,7 +112,7 @@ export class GameManager {
     this.player.setEnemyManager(this.enemyManager);
     
     // Load high score from localStorage
-    const savedHighScore = localStorage.getItem('round42_highscore');
+    const savedHighScore = localStorage.getItem('round50_highscore');
     if (savedHighScore) {
       this.highScore = parseInt(savedHighScore, 10);
     }
@@ -231,6 +233,30 @@ export class GameManager {
     // If paused, don't update game logic (but still render)
     if (this.isPaused) {
       return;
+    }
+    
+    // Handle victory state
+    if (this.isVictory) {
+      // Increment victory timer for animation
+      this.victoryTimer++;
+      
+      // Allow restart after a delay (similar to game over)
+      if (this.victoryTimer > 300) { // 5 seconds at 60fps
+        // Bot automatically restarts after delay
+        if (this.botAI.isBotActive()) {
+          this.restartGame();
+          return;
+        }
+        
+        // Players can restart after delay
+        if (this.input.isKeyPressed(' ') || 
+            this.input.isKeyPressed('enter') ||
+            this.input.isKeyPressed('r')) {
+          this.restartGame();
+          return;
+        }
+      }
+      return; // Don't update game logic during victory
     }
     
     // Handle game over state
@@ -438,16 +464,24 @@ export class GameManager {
       this.score += roundBonus;
     }
     
-    // Check if game is complete (all 42 rounds)
-    if (this.round >= 42) {
-      // Victory! (will implement victory screen later)
-      console.log('Victory! All 42 rounds completed!');
-      this.stop();
+    // Check if game is complete (all 50 rounds)
+    if (this.round >= 50) {
+      // Victory!
+      this.isVictory = true;
+      this.victoryTimer = 0;
+      // Update high score before showing victory
+      if (this.score > this.highScore) {
+        this.highScore = this.score;
+        localStorage.setItem('round50_highscore', this.highScore.toString());
+      }
+      // Notify bot of victory
+      const finalLaserCount = this.player ? this.player.getLaserCount() : 0;
+      this.botAI.onGameEnd(this.score, this.round, this.lives, finalLaserCount);
       return;
     }
     
     // Check if we just completed a round that should trigger a bonus round
-    // Bonus rounds happen AFTER rounds 4, 8, 12, 16, 20, 24, 28, 32, 36, 40
+    // Bonus rounds happen AFTER rounds 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48
     // So after round 4 completes, show bonus round, then advance to round 5
     if (this.round % 4 === 0 && !this.isBonusRound) {
       // Start bonus round (marked as bonus, but keep same round number for display)
@@ -684,6 +718,12 @@ export class GameManager {
     
     // Draw background stars
     this.drawStars();
+    
+    // Draw victory screen
+    if (this.isVictory) {
+      this.drawVictory();
+      return; // Don't draw game entities during victory
+    }
     
     // Draw game over screen
     if (this.isGameOver) {
@@ -960,7 +1000,7 @@ export class GameManager {
     // Update high score if current score is higher
     if (this.score > this.highScore) {
       this.highScore = this.score;
-      localStorage.setItem('round42_highscore', this.highScore.toString());
+      localStorage.setItem('round50_highscore', this.highScore.toString());
     }
     
     // Notify bot of game end for learning
@@ -977,10 +1017,12 @@ export class GameManager {
   private restartGame(): void {
     // Reset all game state
     this.score = 0;
-    this.lives = 3;
+    this.lives = 1;
     this.round = 1;
     this.isGameOver = false;
     this.gameOverTimer = 0; // Reset game over timer
+    this.isVictory = false;
+    this.victoryTimer = 0;
     this.isInRoundTransition = false;
     this.isRespawning = false;
     this.isPaused = false; // Reset pause state
@@ -1016,6 +1058,67 @@ export class GameManager {
     this.start();
   }
   
+  private drawVictory(): void {
+    // Convert victory timer to time for animation (in frames, roughly 60fps)
+    const time = this.victoryTimer;
+    
+    // Draw "YOU WIN!!" in big golden blocks (animated)
+    this.renderer.drawGoldenBlockText(
+      'YOU WIN!!',
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 35,
+      2.0, // Big size
+      'center',
+      time
+    );
+    
+    // Draw "Billionaire Mindset" in golden blocks (slightly smaller, animated)
+    this.renderer.drawGoldenBlockText(
+      'Billionaire Mindset',
+      this.gameWidth / 2,
+      this.gameHeight / 2 - 5,
+      1.2, // Medium size
+      'center',
+      time
+    );
+    
+    // Draw final score (center aligned)
+    this.renderer.drawText(
+      `FINAL SCORE: ${this.score}`,
+      this.gameWidth / 2,
+      this.gameHeight / 2 + 20,
+      Palette.GOLD,
+      0.8,
+      'center'
+    );
+    
+    // Draw high score (center aligned)
+    if (this.highScore > 0) {
+      const highScoreText = this.score === this.highScore ? 'NEW HIGH SCORE!' : `HIGH SCORE: ${this.highScore}`;
+      const highScoreColor = this.score === this.highScore ? Palette.GOLD : Palette.PLATINUM;
+      this.renderer.drawText(
+        highScoreText,
+        this.gameWidth / 2,
+        this.gameHeight / 2 + 35,
+        highScoreColor,
+        0.7,
+        'center'
+      );
+    }
+    
+    // Draw restart instruction (center aligned) - only show after 5 seconds
+    if (this.victoryTimer > 300) {
+      this.renderer.drawText(
+        'PRESS SPACE/ENTER/R TO RESTART',
+        this.gameWidth / 2,
+        this.gameHeight / 2 + 55,
+        Palette.PLATINUM,
+        0.6,
+        'center'
+      );
+    }
+  }
+  
   private drawGameOver(): void {
     // Draw "GAME OVER" title (center aligned)
     this.renderer.drawText(
@@ -1039,7 +1142,7 @@ export class GameManager {
     
     // Draw round reached (center aligned)
     this.renderer.drawText(
-      `ROUND REACHED: ${this.round}/42`,
+      `ROUND REACHED: ${this.round}/50`,
       this.gameWidth / 2,
       this.gameHeight / 2 - 10,
       Palette.EMERALD_GREEN,
@@ -1118,7 +1221,7 @@ export class GameManager {
     }
     
     // Round
-    this.renderer.drawText(`ROUND: ${this.round}/42`, 5, 26, Palette.EMERALD_GREEN, 0.5);
+    this.renderer.drawText(`ROUND: ${this.round}/50`, 5, 26, Palette.EMERALD_GREEN, 0.5);
     
     // Enemy count
     const enemyCount = this.enemyManager.getEnemyCount();

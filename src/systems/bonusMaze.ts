@@ -174,22 +174,22 @@ export class BonusMaze {
       const segmentIndex = 1 + (i % 7); // Segments 1-7, cycling if needed
       const lifeY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
-      // Place lives on the LEFT side of the path, but further from the wall
+      // Place lives on the LEFT side of the path, closer to center for easier collection
       // Path center is gameWidth/2 (100), path width is 45
       // Left edge of path is at 100 - 22.5 = 77.5
-      // Place pickups 12-20 pixels from left edge of path (increased from 8-16 to avoid walls)
-      let lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 12 + Math.random() * 8;
+      // Place pickups 15-20 pixels from left edge (closer to center, easier to collect)
+      let lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 15 + Math.random() * 5;
       
       // Try multiple positions to avoid wall overlap
       let attempts = 0;
       while (this.checkWallOverlap(lifeX, lifeY, itemSize) && attempts < 10) {
-        lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 12 + Math.random() * 8;
+        lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 15 + Math.random() * 5;
         attempts++;
       }
       
       // If still overlapping after attempts, move it more towards center
       if (this.checkWallOverlap(lifeX, lifeY, itemSize)) {
-        lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 16; // Force position more towards center
+        lifeX = this.gameWidth / 2 - this.pathWidth / 2 + 18; // Force position more towards center
       }
       
       this.lives.push({
@@ -217,22 +217,22 @@ export class BonusMaze {
       const segmentIndex = 1 + (i % 7); // Segments 1-7, cycling if needed
       const laserY = segmentIndex * this.segmentHeight + this.segmentHeight / 2;
       
-      // Place lasers on the RIGHT side of the path, but further from the wall
+      // Place lasers on the RIGHT side of the path, closer to center for easier collection
       // Path center is gameWidth/2 (100), path width is 45
       // Right edge of path is at 100 + 22.5 = 122.5
-      // Place pickups 12-20 pixels from right edge of path (increased from 8-16 to avoid walls)
-      let laserX = this.gameWidth / 2 + this.pathWidth / 2 - 20 - Math.random() * 8;
+      // Place pickups 15-20 pixels from right edge (closer to center, easier to collect)
+      let laserX = this.gameWidth / 2 + this.pathWidth / 2 - 20 + Math.random() * 5;
       
       // Try multiple positions to avoid wall overlap
       let attempts = 0;
       while (this.checkWallOverlap(laserX, laserY, itemSize) && attempts < 10) {
-        laserX = this.gameWidth / 2 + this.pathWidth / 2 - 20 - Math.random() * 8;
+        laserX = this.gameWidth / 2 + this.pathWidth / 2 - 20 + Math.random() * 5;
         attempts++;
       }
       
       // If still overlapping after attempts, move it more towards center
       if (this.checkWallOverlap(laserX, laserY, itemSize)) {
-        laserX = this.gameWidth / 2 + this.pathWidth / 2 - 16; // Force position more towards center
+        laserX = this.gameWidth / 2 + this.pathWidth / 2 - 18; // Force position more towards center
       }
       
       this.lasers.push({

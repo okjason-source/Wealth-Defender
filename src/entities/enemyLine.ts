@@ -110,18 +110,31 @@ export class EnemyLine {
     const actualEnemyCount = enemyCount > 0 ? enemyCount : Math.floor((gameWidth - 10) / (enemyWidth + this.enemySpacing));
     
     // Calculate spacing to fit all enemies across screen width
-    // Adjust spacing if needed to fit all enemies
+    // ALL enemies should utilize full screen width for better balance
     let spacing = this.enemySpacing;
     const totalWidthNeeded = (actualEnemyCount - 1) * spacing + enemyWidth;
     
-    if (totalWidthNeeded > gameWidth - 10) {
+    // For ALL enemy types, spread them across full width when there are fewer enemies
+    // This ensures all enemies use both left and right sides for balance
+    if (totalWidthNeeded < gameWidth - 10) {
+      // If line doesn't fill screen, increase spacing to utilize full width
+      // Use 90% of available width to leave some margin for movement
+      spacing = Math.max(this.enemySpacing, ((gameWidth - 10) * 0.9 - enemyWidth) / (actualEnemyCount - 1));
+    } else if (totalWidthNeeded > gameWidth - 10) {
       // Need to reduce spacing to fit all enemies
       spacing = Math.max(8, (gameWidth - 10 - enemyWidth) / (actualEnemyCount - 1));
     }
     
-    // Calculate total width and start position to fill left to right
+    // Calculate total width and start position
     const totalWidth = (actualEnemyCount - 1) * spacing + enemyWidth;
-    const startX = Math.max(5, (gameWidth - totalWidth) / 2);
+    
+    // ALL enemies start from left edge to ensure full width traversal
+    // This prevents favoring the right side and ensures balanced screen utilization
+    let startX = 5; // Start from left edge (with small margin)
+    // Ensure the line doesn't exceed right edge
+    if (startX + totalWidth > gameWidth - 5) {
+      startX = Math.max(5, gameWidth - totalWidth - 5);
+    }
     
     // Create enemies in a line, filling left to right
     // ALL enemies must start at the very top (y=0) for playability
@@ -164,32 +177,13 @@ export class EnemyLine {
     this.lastCoordinatedAttack += frameDelta;
     this.framesSinceSpawn += frameDelta;
     
-    // CRITICAL: Ensure ALL enemies ALWAYS start at the top (y=0)
-    // For the first 5 frames, FORCE y=0 for ALL enemy types
-    // This ensures enemies start at the top regardless of any initialization issues
-    if (this.framesSinceSpawn < 5) {
-      this.y = 0;
-      if (this.enemyType === EnemyType.BRAIN) {
-        this.brainBaseY = 0;
-        this.brainInitialY = 0;
-      }
-    }
-    
-    // Safety check: If Y is greater than 10 pixels, something is wrong - reset to 0
-    // This catches any coordinate system issues or unexpected Y assignments
-    if (this.y > 10 && this.framesSinceSpawn < 30) {
-      this.y = 0;
-      if (this.enemyType === EnemyType.BRAIN) {
-        this.brainBaseY = 0;
-        this.brainInitialY = 0;
-      }
-    }
-    
-    // Safety check: Ensure Y never goes negative
+    // Safety check: Ensure Y never goes negative (applies to all enemy types)
     if (this.y < 0) {
       this.y = 0;
     }
+    
     // For brains, ensure brainBaseY is set (if not initialized, use current y)
+    // This should only run if brainBaseY wasn't set in constructor
     if (this.enemyType === EnemyType.BRAIN && this.brainBaseY < 0) {
       this.brainBaseY = 0;
       this.brainInitialY = 0;
@@ -216,55 +210,49 @@ export class EnemyLine {
         this.y = 0;
       }
       
-      // CRITICAL: For the first 30 frames, FORCE brainBaseY to stay at 0
-      // This prevents ANY possibility of enemies starting at the bottom
-      // They must start at the top and only descend after wrapping around multiple times
-      if (this.framesSinceSpawn < 30) {
+      // Brains move right and wrap around, descending slightly each wrap
+      // Safety check: Ensure brainBaseY is never negative
+      if (this.brainBaseY < 0) {
         this.brainBaseY = 0;
         this.brainInitialY = 0;
-        this.y = 0;
-        // Still allow horizontal movement
-        this.x += this.vx * frameDelta;
-        // Prevent wrap-around descent during first 30 frames
-        if (this.x + lineWidth > this.gameWidth - 5) {
-          this.x = 5; // Reset to left side but don't move down
-        }
-        // Set Y to 0 and skip descent logic for first 30 frames
-        this.y = 0;
-      } else {
-        // Safety check: Ensure brainBaseY is never negative
-        if (this.brainBaseY < 0) {
-          this.brainBaseY = 0;
-          this.brainInitialY = 0;
-        }
-        
-        // Ensure brainBaseY never goes below initial position (safety check)
-        if (this.brainInitialY >= 0 && this.brainBaseY < this.brainInitialY) {
-          this.brainBaseY = this.brainInitialY;
-        }
-        
-        // Move line horizontally (always right for brains)
-        this.x += this.vx * frameDelta;
-        
-        // Base Y position - uses brainBaseY which starts at 0 and increases as they wrap around
-        // Apply wave pattern will be done in individual enemy update
+      }
+      
+      // Ensure brainBaseY never goes below initial position (safety check)
+      if (this.brainInitialY >= 0 && this.brainBaseY < this.brainInitialY) {
+        this.brainBaseY = this.brainInitialY;
+      }
+      
+      // Move line horizontally (always right for brains)
+      this.x += this.vx * frameDelta;
+      
+      // Base Y position - uses brainBaseY which starts at 0 and increases as they wrap around
+      // Apply wave pattern will be done in individual enemy update
+      this.y = this.brainBaseY;
+      
+      // When line reaches right edge, wrap to left and move down slightly
+      // This is the key mechanic: brains get closer each time they wrap around
+      // CRITICAL: Brains must ALWAYS wrap, never bounce or get stuck
+      if (this.x + lineWidth > this.gameWidth - 5 || this.x + lineWidth >= this.gameWidth) {
+        this.x = 5; // Reset to left side
+        // Progressive descent: Cycle 1 = 3px, Cycle 2 = 4px, ... Cycle 9 = 8px
+        const descentRate = 3 + ((this.cycle - 1) * 0.625); // Increases with cycle
+        this.brainBaseY += descentRate;
         this.y = this.brainBaseY;
-        
-        // When line reaches right edge, wrap to left and move down slightly
-        // This is the key mechanic: brains get closer each time they wrap around
-        if (this.x + lineWidth > this.gameWidth - 5) {
-          this.x = 5; // Reset to left side
-          // Progressive descent: Cycle 1 = 3px, Cycle 2 = 4px, ... Cycle 9 = 8px
-          const descentRate = 3 + ((this.cycle - 1) * 0.625); // Increases with cycle
-          this.brainBaseY += descentRate;
-          this.y = this.brainBaseY;
-        }
-        
-        // Keep Y within bounds (don't go too low - but allow them to get close to player)
-        if (this.brainBaseY > this.gameHeight - 30) {
-          this.brainBaseY = this.gameHeight - 30;
-          this.y = this.brainBaseY;
-        }
+      }
+      
+      // Safety check: If brain somehow gets stuck at right edge, force wrap
+      // This prevents brains from bouncing or getting stuck
+      if (this.x + lineWidth >= this.gameWidth - 1) {
+        this.x = 5; // Force wrap to left
+        const descentRate = 3 + ((this.cycle - 1) * 0.625);
+        this.brainBaseY += descentRate;
+        this.y = this.brainBaseY;
+      }
+      
+      // Keep Y within bounds (don't go too low - but allow them to get close to player)
+      if (this.brainBaseY > this.gameHeight - 30) {
+        this.brainBaseY = this.gameHeight - 30;
+        this.y = this.brainBaseY;
       }
     }
     // Special movement pattern for Haters: left-to-right wrap-around
@@ -272,18 +260,14 @@ export class EnemyLine {
       // Move line horizontally (always right for haters)
       this.x += this.vx * frameDelta;
       
-      // CRITICAL: For the first 5 frames, prevent any downward movement
-      // All enemies must start at the top (y=0) before descending
-      if (this.framesSinceSpawn >= 5) {
-        // When line reaches right edge, wrap to left and move down one row
-        if (this.x + lineWidth > this.gameWidth - 5) {
-          this.x = 5; // Reset to left side
-          this.y += this.rowHeight; // Move down one row
-          
-          // If reached bottom, reset to top
-          if (this.y + this.rowHeight > this.gameHeight - 20) {
-            this.y = 0; // Reset to top
-          }
+      // When line reaches right edge, wrap to left and move down one row
+      if (this.x + lineWidth > this.gameWidth - 5) {
+        this.x = 5; // Reset to left side
+        this.y += this.rowHeight; // Move down one row
+        
+        // If reached bottom, reset to top
+        if (this.y + this.rowHeight > this.gameHeight - 20) {
+          this.y = 0; // Reset to top
         }
       }
     } else {
@@ -291,34 +275,30 @@ export class EnemyLine {
       // Move line horizontally
       this.x += this.vx * this.direction * frameDelta;
       
-      // CRITICAL: For the first 5 frames, prevent any downward movement
-      // All enemies must start at the top (y=0) before descending
-      if (this.framesSinceSpawn >= 5) {
-        // Bounce off walls - keep line within bounds
-        // Calculate bounds to ensure no enemy goes off-screen
-        const minX = 0; // No margin - enemies can touch left edge
-        const maxX = this.gameWidth - lineWidth; // Right edge of last enemy touches right wall
-        
-        // Check if line has hit a wall
-        if (this.x <= minX) {
-          this.direction = 1; // Force direction to right
-          this.x = minX; // Clamp to left edge
-          // Move down when hitting a wall (additional downward push)
-          this.y += this.vy * 5;
-        } else if (this.x >= maxX) {
-          this.direction = -1; // Force direction to left
-          this.x = maxX; // Clamp to right edge
-          // Move down when hitting a wall (additional downward push)
-          this.y += this.vy * 5;
-        }
-        
-        // Move line down continuously (normal descent progression)
-        this.y += this.vy * frameDelta;
-        
-        // Wrap line to top when it reaches the bottom
-        if (this.y > this.gameHeight) {
-          this.y = 0; // Re-enter from top
-        }
+      // Bounce off walls - keep line within bounds
+      // Calculate bounds to ensure no enemy goes off-screen
+      const minX = 0; // No margin - enemies can touch left edge
+      const maxX = this.gameWidth - lineWidth; // Right edge of last enemy touches right wall
+      
+      // Check if line has hit a wall
+      if (this.x <= minX) {
+        this.direction = 1; // Force direction to right
+        this.x = minX; // Clamp to left edge
+        // Move down when hitting a wall (additional downward push)
+        this.y += this.vy * 5;
+      } else if (this.x >= maxX) {
+        this.direction = -1; // Force direction to left
+        this.x = maxX; // Clamp to right edge
+        // Move down when hitting a wall (additional downward push)
+        this.y += this.vy * 5;
+      }
+      
+      // Move line down continuously (normal descent progression)
+      this.y += this.vy * frameDelta;
+      
+      // Wrap line to top when it reaches the bottom
+      if (this.y > this.gameHeight) {
+        this.y = 0; // Re-enter from top
       }
     }
     
