@@ -1,6 +1,6 @@
 # 🎮 Wealth Defender - Billionaire Mindset
 
-A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel art graphics and a billionaire-themed twist. Defend your wealth through 42 challenging rounds!
+A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel art graphics and a billionaire-themed twist. Defend your wealth through 50 challenging rounds!
 
 ![Wealth Defender](https://img.shields.io/badge/Status-Playable-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)
@@ -8,11 +8,11 @@ A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel a
 
 ## 🎯 Features
 
-- **42 Unique Rounds** - Progressive difficulty with unique enemy patterns
+- **50 Unique Rounds** - Progressive difficulty with unique enemy patterns
 - **8-Bit Pixel Art** - Retro aesthetic with encoded sprites (zero external assets)
 - **Billionaire Theme** - Shoot down Dollar Bills, Diamonds, Coins, and Haters
 - **AI Bot** - Watch an AI learn and master the game (press `B` to toggle)
-- **Rapid Fire Combat** - Short, fast projectiles for intense action
+- **Rapid Fire Combat** - Short, fast projectiles for intense action, take out multiple targets with lasers to escape and defeat level
 - **Pause System** - Take a break anytime (press `P` or `Escape`)
 - **High Score Tracking** - Compete with yourself using localStorage
 
@@ -145,7 +145,7 @@ The bot's progress is saved to localStorage and persists between sessions. Use t
 
 ### Key Features Implemented
 
-- ✅ 42 rounds with unique enemy patterns
+- ✅ 50 rounds with unique enemy patterns
 - ✅ Player movement and shooting
 - ✅ Collision detection
 - ✅ Particle effects
@@ -158,7 +158,7 @@ The bot's progress is saved to localStorage and persists between sessions. Use t
 
 ## 📄 License
 
-This project is open source and available under the [MIT License](LICENSE).
+This project is open source and available under the [MIT License](LICENSE).  All rights reserved.
 
 ## 🙏 Acknowledgments
 
