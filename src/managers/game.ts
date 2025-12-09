@@ -42,7 +42,7 @@ export class GameManager {
   
   // Game state
   private score: number = 0;
-  private lives: number = 1;
+  private lives: number = 3;
   private round: number = 1;
   private roundTransitionTimer: number = 0;
   private roundTransitionDuration: number = 120; // Frames to show round transition
@@ -1017,7 +1017,7 @@ export class GameManager {
   private restartGame(): void {
     // Reset all game state
     this.score = 0;
-    this.lives = 1;
+    this.lives = 3;
     this.round = 1;
     this.isGameOver = false;
     this.gameOverTimer = 0; // Reset game over timer
