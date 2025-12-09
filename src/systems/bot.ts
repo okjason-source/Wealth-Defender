@@ -1265,6 +1265,24 @@ export class BotAI {
       // Clamp threat level to 0-1
       threatLevel = Math.min(1.0, threatLevel);
       
+      // STRATEGIC RESOURCE COMPARISON: Compare lasers vs lives to determine trade-off
+      // If we have more lasers than lives, use lasers more liberally to protect lives
+      // If we have more lives than lasers, be more conservative and risk taking damage
+      let resourceComparisonModifier = 0;
+      
+      if (laserCount > lives) {
+        // More lasers than lives: use lasers to protect lives (more willing to use)
+        // Example: 5 lasers, 1 life → very willing to use laser to protect that life
+        const laserToLifeRatio = laserCount / Math.max(lives, 1);
+        resourceComparisonModifier = Math.min(0.2, (laserToLifeRatio - 1) * 0.1); // Up to +0.2 bonus
+      } else if (lives > laserCount) {
+        // More lives than lasers: conserve lasers, risk taking damage (less willing to use)
+        // Example: 3 lives, 1 laser → be conservative, save the laser
+        const lifeToLaserRatio = lives / Math.max(laserCount, 1);
+        resourceComparisonModifier = -Math.min(0.15, (lifeToLaserRatio - 1) * 0.05); // Up to -0.15 penalty
+      }
+      // If lasers == lives, no modifier (balanced resources)
+      
       // CONSERVATION: Don't use lasers too frequently (but allow more strategic use)
       const roundsSinceLastLaser = currentRound - this.lastLaserUseRound;
       const minRoundsBetweenLasers = Math.max(2, Math.floor(8 * this.laserConservationLevel)); // 2-3 rounds (reduced from 3-7)
@@ -1272,14 +1290,17 @@ export class BotAI {
       // DECISION: Use laser if threat level exceeds threshold AND enough rounds have passed
       // More permissive: allow use if threat is moderate-high OR emergency situation
       const canUseLaser = roundsSinceLastLaser >= minRoundsBetweenLasers || threatLevel > 0.85; // Emergency override (lowered from 0.9)
-      const shouldUseBasedOnThreat = threatLevel > this.laserUsageThreshold;
+      
+      // Apply resource comparison modifier to threshold (lower threshold = more willing to use)
+      const adjustedThreshold = this.laserUsageThreshold - resourceComparisonModifier;
+      const shouldUseBasedOnThreat = threatLevel > adjustedThreshold;
       
       // Additional factor: If we have many lasers (3+), be slightly more willing to use them
       const laserAbundanceBonus = laserCount >= 3 ? 0.05 : 0; // Small bonus if we have plenty
       const adjustedThreatLevel = threatLevel + laserAbundanceBonus;
       
-      // Use laser if conditions are met (with adjusted threat level for abundance)
-      if (canUseLaser && (adjustedThreatLevel > this.laserUsageThreshold || shouldUseBasedOnThreat)) {
+      // Use laser if conditions are met (with adjusted threat level and threshold)
+      if (canUseLaser && (adjustedThreatLevel > adjustedThreshold || shouldUseBasedOnThreat)) {
         shouldUseLaser = true;
         this.lastLaserUseRound = currentRound;
         this.lasersUsedThisGame++; // Track laser usage for learning
