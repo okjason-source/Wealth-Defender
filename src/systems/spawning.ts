@@ -102,9 +102,16 @@ export class SpawningSystem {
     if (wave.formation === 'meteor') {
       // Spawn individual coin at random X position at top
       const randomX = 5 + Math.random() * (200 - 10 - 8); // Random X, leave margins
-      const speedMultiplier = 1.0 + ((this.currentRound - 1) * 0.05);
+      let speedMultiplier = 1.0 + ((this.currentRound - 1) * 0.05);
       const cycle = Math.floor((this.currentRound - 1) / 4) + 1;
       const canShoot = cycle >= 2;
+      
+      // For diamonds in rounds 21-32, some should fall faster (30% chance for 2x speed)
+      if (this.currentRound >= 21 && this.currentRound <= 32 && wave.enemyType === EnemyType.DIAMOND) {
+        if (Math.random() < 0.3) {
+          speedMultiplier *= 2.0; // 30% of diamonds fall 2x faster
+        }
+      }
       
       this.enemyManager.spawnFallingEnemy(
         wave.enemyType,
@@ -310,17 +317,42 @@ export class SpawningSystem {
       // Distribute from top (row 0) first
       
       // Check if coins >= 100 for meteor formation (doubled from 50)
-      const useMeteor = enemyType === EnemyType.COIN && enemiesPerRow >= 100;
+      // OR if rounds 21-32 (all types drop like coins)
+      const useMeteor = (enemyType === EnemyType.COIN && enemiesPerRow >= 100) || (round >= 21 && round <= 32);
       
       if (useMeteor) {
-        // Meteor formation: spawn individual coins continuously
+        // Meteor formation: spawn individual enemies continuously (like dropping coins)
+        // For rounds 21-32, all enemy types drop individually from top
         // Meteors spawn from top, distribute total count across spawns
         const totalMeteorSpawns = enemiesPerRow; // Total number of meteors to spawn
+        
+        // Calculate spawn delay based on enemy count: fewer enemies = farther apart, more enemies = closer together
+        // Minimum delay ensures minimum distance between enemies
+        let spawnDelay: number;
+        if (round >= 21 && round <= 32 && enemyType === EnemyType.DIAMOND) {
+          // For diamonds in rounds 21-32: scale delay inversely with enemy count
+          // More enemies (120-160) = shorter delay (denser), fewer enemies = longer delay (sparser)
+          // Formula: delay scales from min (5) to max (20) based on enemy count
+          // Rounds 21-32 have 120-160 enemies, so we scale between those values
+          const minEnemies = 120; // Round 21-24 (Cycle 6)
+          const maxEnemies = 160; // Round 29-32 (Cycle 8)
+          const minDelay = 5; // Minimum distance (denser)
+          const maxDelay = 20; // Maximum distance (sparser)
+          
+          // Inverse relationship: more enemies = shorter delay
+          // When enemiesPerRow is max (160), delay is min (5)
+          // When enemiesPerRow is min (120), delay is max (20)
+          const normalized = (enemiesPerRow - minEnemies) / (maxEnemies - minEnemies);
+          spawnDelay = Math.round(maxDelay - (normalized * (maxDelay - minDelay)));
+        } else {
+          spawnDelay = 15; // Default delay for other types
+        }
+        
         for (let i = 0; i < totalMeteorSpawns; i++) {
           waves.push({
             enemyType: enemyType,
             count: 1, // Spawn one at a time
-            spawnDelay: 15, // Delay between each coin drop (creates continuous rain)
+            spawnDelay: spawnDelay, // Delay scales with enemy count (fewer = farther apart, more = closer)
             formation: 'meteor',
             spacing: 0, // Not used for meteor
             rowIndex: 0, // Meteors spawn at top

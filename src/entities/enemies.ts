@@ -194,10 +194,31 @@ export class Enemy {
     if (this.isFalling) {
       this.y += this.fallSpeed * frameDelta;
       
+      // Dollar bills float left and right while falling
+      if (this.type === EnemyType.DOLLAR_BILL) {
+        this.patternTime += frameDelta;
+        // Float left and right using sine wave (oscillates smoothly)
+        const floatAmplitude = 0.8; // Horizontal speed (pixels per frame)
+        const floatSpeed = 0.08; // Speed of floating oscillation
+        // Calculate horizontal velocity from sine wave derivative (cosine)
+        this.vx = Math.cos(this.patternTime * floatSpeed) * floatAmplitude;
+        this.x += this.vx * frameDelta;
+        
+        // Keep dollar bills within screen bounds
+        if (this.x < 0) {
+          this.x = 0;
+          this.vx = 0; // Stop at edge
+        } else if (this.x + this.width > this.gameWidth) {
+          this.x = this.gameWidth - this.width;
+          this.vx = 0; // Stop at edge
+        }
+      }
+      
       // When reaching bottom, wrap to top at random X position
       if (this.y > this.gameHeight) {
         this.y = 0;
         this.x = 5 + Math.random() * (this.gameWidth - 10 - this.width);
+        this.patternTime = 0; // Reset pattern time for new drop
       }
       
       // Update shoot cooldown for falling enemies
@@ -546,8 +567,9 @@ export class Enemy {
     this.isFalling = true;
     this.isInLine = false;
     this.fallSpeed = 0.3 * speedMultiplier; // Base fall speed, scales with round
-    this.vx = 0; // No horizontal movement
+    this.vx = 0; // No horizontal movement (will be set dynamically for dollar bills)
     this.vy = this.fallSpeed;
+    this.patternTime = 0; // Initialize pattern time for floating movement
   }
   
   isFallingMode(): boolean {
