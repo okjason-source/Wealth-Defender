@@ -167,8 +167,9 @@ export class SpawningSystem {
     
     // Brain replacement levels: 
     // Level 3 (diamonds), 5 (coins), 10 (dollars), 16 (haters), 19 (diamonds), 
-    // then continuing the pattern: 22 (coins), 26 (dollars), 30 (haters), 33 (diamonds), 36 (haters)
-    const brainLevels = [3, 5, 10, 16, 19, 22, 26, 30, 33, 36];
+    // then continuing the pattern: 30 (haters), 33 (diamonds), 36 (haters)
+    // Note: Rounds 22 and 26 are dollar bills (not brains) for floating dollar bill effect
+    const brainLevels = [3, 5, 10, 16, 19, 30, 33, 36];
     const isBrainLevel = brainLevels.includes(round);
     
     let enemyType: EnemyType;
