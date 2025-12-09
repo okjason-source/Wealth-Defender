@@ -21,7 +21,11 @@ export enum EnemyType {
   BRAIN,
 }
 
+// Static counter for unique enemy IDs
+let enemyIdCounter = 0;
+
 export class Enemy {
+  public readonly id: string; // Unique identifier for audio tracking
   x: number;
   y: number;
   vx: number;
@@ -77,6 +81,7 @@ export class Enemy {
     canShoot: boolean = false,
     cycle: number = 1
   ) {
+    this.id = `enemy_${enemyIdCounter++}`; // Generate unique ID
     this.x = x;
     this.y = y;
     this.vx = vx;

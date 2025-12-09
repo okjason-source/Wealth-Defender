@@ -70,12 +70,14 @@ export class CollisionSystem {
     projectiles: Projectile[]
   ): {
     playerHit: boolean;
-    enemiesHit: Enemy[];
+    enemiesHit: Enemy[]; // Enemies destroyed
+    enemiesDamaged: Array<{ enemy: Enemy; hitsTaken: number; currentHealth: number }>; // Enemies hit (but not destroyed)
     projectilesToRemove: Projectile[];
   } {
     const result = {
       playerHit: false,
       enemiesHit: [] as Enemy[],
+      enemiesDamaged: [] as Array<{ enemy: Enemy; hitsTaken: number; currentHealth: number }>,
       projectilesToRemove: [] as Projectile[],
     };
     
@@ -98,11 +100,17 @@ export class CollisionSystem {
     for (const projectile of projectiles) {
       for (const enemy of enemies) {
         if (this.checkProjectileEnemy(projectile, enemy)) {
+          // Calculate hits taken before damage (health before hit)
+          const hitsTaken = enemy.maxHealth - enemy.health;
           enemy.takeDamage(1);
           result.projectilesToRemove.push(projectile);
           
           if (!enemy.active) {
             result.enemiesHit.push(enemy);
+          } else {
+            // Enemy was hit but not destroyed - track for buzz sound
+            // Include current health for octave/melody mapping
+            result.enemiesDamaged.push({ enemy, hitsTaken, currentHealth: enemy.health });
           }
           break; // Projectile can only hit one enemy
         }

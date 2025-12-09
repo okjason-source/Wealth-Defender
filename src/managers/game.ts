@@ -14,12 +14,16 @@ import { SpawningSystem } from '../systems/spawning';
 import { ParticleSystem } from '../entities/particles';
 import { BotAI } from '../systems/bot';
 import { BonusMaze } from '../systems/bonusMaze';
+import { AudioManager, SoundType } from '../audio/audioManager';
 
 export class GameManager {
   private renderer: PixelRenderer;
   private canvas: HTMLCanvasElement;
   private isRunning: boolean = false;
   private lastTime: number = 0;
+  private animationFrameId: number | null = null;
+  private timeoutId: number | null = null;
+  private isTabVisible: boolean = true;
   private gameWidth: number = 200; // Game pixels (will be scaled)
   private gameHeight: number = 150;
   private pixelSize: number = 4;
@@ -34,11 +38,16 @@ export class GameManager {
   private particleSystem: ParticleSystem;
   private botAI: BotAI;
   private bonusMaze: BonusMaze | null = null;
+  private audioManager: AudioManager;
   
   // Frame counter for bot
   private frameCount: number = 0;
   // Time counter for crushed diamond text animation
   private diamondTextTime: number = 0;
+  // Track previous laser state for sound
+  private previousLaserActive: boolean = false;
+  // Track previous player projectile count for sound
+  private previousPlayerProjectileCount: number = 0;
   
   // Game state
   private score: number = 0;
@@ -53,8 +62,8 @@ export class GameManager {
   private respawnDelay: number = 30; // Frames to show explosion before respawning
   private isRespawning: boolean = false;
   private isGameOver: boolean = false;
-  private gameOverTimer: number = 0; // Timer before allowing restart (5 seconds = 300 frames at 60fps)
-  private gameOverDelay: number = 300; // 5 seconds at 60fps
+  private gameOverTimer: number = 0; // Timer before allowing restart (3 seconds = 180 frames at 60fps)
+  private gameOverDelay: number = 180; // 3 seconds at 60fps
   private isVictory: boolean = false;
   private victoryTimer: number = 0; // Timer for victory animation
   private highScore: number = 0;
@@ -88,6 +97,7 @@ export class GameManager {
     
     // Initialize systems
     this.input = new InputSystem();
+    this.audioManager = new AudioManager();
     this.projectileManager = new ProjectileManager(this.gameWidth, this.gameHeight);
     this.enemyManager = new EnemyManager(this.gameWidth, this.gameHeight, this.projectileManager);
     this.collisionSystem = new CollisionSystem();
@@ -134,8 +144,38 @@ export class GameManager {
     
     this.isRunning = true;
     this.lastTime = performance.now();
+    
+    // Set up Page Visibility API to detect tab visibility
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.handleVisibilityChange(); // Check initial state
+    
     this.gameLoop();
   }
+  
+  /**
+   * Handle tab visibility changes - continue game in background
+   */
+  private handleVisibilityChange = (): void => {
+    this.isTabVisible = !document.hidden;
+    
+    // If tab becomes hidden, switch to setTimeout-based loop
+    // If tab becomes visible, switch back to requestAnimationFrame
+    if (!this.isTabVisible && this.isRunning) {
+      // Tab hidden - cancel animation frame and use setTimeout
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      // Start setTimeout-based loop
+      this.gameLoopTimeout();
+    } else if (this.isTabVisible && this.isRunning) {
+      // Tab visible - cancel timeout and use requestAnimationFrame
+      if (this.timeoutId !== null) {
+        clearTimeout(this.timeoutId);
+        this.timeoutId = null;
+      }
+    }
+  };
   
   private startRound(round: number, isBonus: boolean = false): void {
     this.round = round;
@@ -145,6 +185,8 @@ export class GameManager {
     if (!isBonus) {
       this.currentSaying = this.sayings[Math.floor(Math.random() * this.sayings.length)];
     }
+    // Stop all active enemy buzz sounds when starting new round
+    this.audioManager.stopAllEnemyBuzzes();
     this.projectileManager.clear();
     this.enemyManager.clear();
     this.particleSystem.clear();
@@ -154,6 +196,13 @@ export class GameManager {
     
     // Set bonus round flag if explicitly requested
     this.isBonusRound = isBonus;
+    
+    // Play round start sound
+    if (isBonus) {
+      this.audioManager.playSound(SoundType.BONUS_ROUND);
+    } else {
+      this.audioManager.playSound(SoundType.ROUND_START);
+    }
     
     // Always reset player position to bottom center at the start of every round
     if (!this.player) {
@@ -186,10 +235,28 @@ export class GameManager {
   
   stop(): void {
     this.isRunning = false;
+    
+    // Clean up event listeners and timers
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+    
+    if (this.timeoutId !== null) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
   }
   
   private gameLoop = (currentTime: number = performance.now()): void => {
     if (!this.isRunning) return;
+    
+    // If tab is hidden, don't use requestAnimationFrame (it pauses)
+    if (!this.isTabVisible) {
+      return; // setTimeout-based loop will handle it
+    }
     
     const deltaTime = currentTime - this.lastTime;
     this.lastTime = currentTime;
@@ -203,7 +270,37 @@ export class GameManager {
       this.render();
     }
     
-    requestAnimationFrame(this.gameLoop);
+    this.animationFrameId = requestAnimationFrame(this.gameLoop);
+  };
+  
+  /**
+   * Timeout-based game loop for when tab is hidden (continues in background)
+   */
+  private gameLoopTimeout = (): void => {
+    if (!this.isRunning || this.isTabVisible) {
+      // Tab is visible again, switch back to requestAnimationFrame
+      if (this.isTabVisible) {
+        this.gameLoop();
+      }
+      return;
+    }
+    
+    const currentTime = performance.now();
+    const deltaTime = currentTime - this.lastTime;
+    this.lastTime = currentTime;
+    
+    // Update game (60 FPS target)
+    const targetFPS = 60;
+    const frameTime = 1000 / targetFPS;
+    
+    if (deltaTime >= frameTime) {
+      this.update(deltaTime);
+      // Don't render when tab is hidden (saves resources)
+      // this.render();
+    }
+    
+    // Continue loop with setTimeout (runs even when tab is hidden)
+    this.timeoutId = window.setTimeout(this.gameLoopTimeout, frameTime);
   };
   
   private update(deltaTime: number): void {
@@ -266,15 +363,15 @@ export class GameManager {
         this.gameOverTimer--;
       }
       
-      // Only allow restart after timer expires (5 seconds)
+      // Only allow restart after timer expires (3 seconds)
       if (this.gameOverTimer <= 0) {
-        // Bot automatically restarts after 5 seconds
+        // Bot automatically restarts after 3 seconds
         if (this.botAI.isBotActive()) {
           this.restartGame();
           return;
         }
         
-        // Players can restart after 5 seconds
+        // Players can restart after 3 seconds
         // Check for restart input (space, enter, or r)
         // Note: input system stores keys as lowercase, so 'Enter' becomes 'enter'
         if (this.input.isKeyPressed(' ') || 
@@ -369,6 +466,17 @@ export class GameManager {
     // Update projectiles
     this.projectileManager.update(deltaTime);
     
+    // Play sound when player fires projectiles
+    const currentPlayerProjectileCount = this.projectileManager.getPlayerProjectiles().length;
+    if (currentPlayerProjectileCount > this.previousPlayerProjectileCount) {
+      // New projectiles fired - play sound (only play once per frame to avoid spam)
+      const newProjectiles = currentPlayerProjectileCount - this.previousPlayerProjectileCount;
+      if (newProjectiles > 0) {
+        this.audioManager.playSound(SoundType.PLAYER_SHOOT, 0.6);
+      }
+    }
+    this.previousPlayerProjectileCount = currentPlayerProjectileCount;
+    
     // Update spawning system
     this.spawningSystem.update(deltaTime);
     
@@ -392,9 +500,21 @@ export class GameManager {
 
     // Handle lightning laser destroyed enemies BEFORE checking round completion
     if (this.player) {
+      // Check if laser just fired (transition from inactive to active)
+      const activeLaserData = this.player.getLightningLaserData();
+      const currentLaserActive = activeLaserData !== null;
+      if (currentLaserActive && !this.previousLaserActive) {
+        // Laser just fired - play sound
+        this.audioManager.playSound(SoundType.LASER_FIRE);
+      }
+      this.previousLaserActive = currentLaserActive;
+      
       const laserDestroyedEnemies = this.player.getLightningLaserDestroyedEnemies();
       if (laserDestroyedEnemies.length > 0) {
         for (const enemy of laserDestroyedEnemies) {
+          // Stop any existing buzz sound (enemy is being destroyed)
+          this.audioManager.stopEnemyBuzz(enemy.id);
+          
           this.score += this.getEnemyPoints(enemy.type);
           this.spawningSystem.onEnemyDestroyed();
           
@@ -408,6 +528,8 @@ export class GameManager {
         if (laserDestroyedEnemies.length >= 20) {
           // Show FLOCKED! message for 90 frames (~1.5 seconds at 60 FPS)
           this.flockedTimer = 90;
+          // Play triumphant FLOCKED! sound
+          this.audioManager.playSound(SoundType.FLOCKED);
         }
       }
     }
@@ -444,8 +566,16 @@ export class GameManager {
         this.projectileManager.removeProjectile(projectile);
       }
       
+      // Start or update continuous buzz sounds for enemies that were hit but not destroyed
+      for (const { enemy, hitsTaken, currentHealth } of collisionResult.enemiesDamaged) {
+        this.audioManager.startOrUpdateEnemyBuzz(enemy.id, enemy.type, hitsTaken, currentHealth, enemy.maxHealth);
+      }
+      
       // Award points for destroyed enemies and create explosions
       for (const enemy of collisionResult.enemiesHit) {
+        // Stop the buzz sound when enemy is destroyed
+        this.audioManager.stopEnemyBuzz(enemy.id);
+        
         this.score += this.getEnemyPoints(enemy.type);
         this.spawningSystem.onEnemyDestroyed();
         
@@ -453,11 +583,19 @@ export class GameManager {
         const center = enemy.getCenter();
         const explosionColor = this.getExplosionColor(enemy.type);
         this.particleSystem.createExplosion(center.x, center.y, explosionColor, 8);
+        
+        // Play enemy destroyed sound (only play once per frame to avoid spam)
+        if (collisionResult.enemiesHit.indexOf(enemy) === 0) {
+          this.audioManager.playSound(SoundType.ENEMY_DESTROYED, 0.5);
+        }
       }
     }
   }
   
   private completeRound(): void {
+    // Stop all active enemy buzz sounds when round completes
+    this.audioManager.stopAllEnemyBuzzes();
+    
     // Award bonus points for round completion (only for non-bonus rounds)
     if (!this.isBonusRound) {
       const roundBonus = this.round * 100;
@@ -477,7 +615,14 @@ export class GameManager {
       // Notify bot of victory
       const finalLaserCount = this.player ? this.player.getLaserCount() : 0;
       this.botAI.onGameEnd(this.score, this.round, this.lives, finalLaserCount);
+      // Play victory sound
+      this.audioManager.playSound(SoundType.VICTORY);
       return;
+    }
+    
+    // Play round complete sound (if not victory)
+    if (!this.isBonusRound) {
+      this.audioManager.playSound(SoundType.ROUND_COMPLETE);
     }
     
     // Check if we just completed a round that should trigger a bonus round
@@ -577,6 +722,8 @@ export class GameManager {
       if (livesCollected > 0) {
         // Collected free lives!
         this.lives += livesCollected;
+        // Play collection sound
+        this.audioManager.playSound(SoundType.COLLECT_ITEM);
         // Create celebration particles
         const center = {
           x: updatedBounds.x + updatedBounds.width / 2,
@@ -596,6 +743,8 @@ export class GameManager {
         // Collected lasers!
         if (this.player) {
           this.player.addLasers(lasersCollected);
+          // Play collection sound
+          this.audioManager.playSound(SoundType.COLLECT_ITEM);
           // Create celebration particles
           const center = {
             x: updatedBounds.x + updatedBounds.width / 2,
@@ -680,6 +829,9 @@ export class GameManager {
   private handlePlayerHit(): void {
     // Don't process hit if already respawning
     if (this.isRespawning) return;
+    
+    // Play player hit sound
+    this.audioManager.playSound(SoundType.PLAYER_HIT);
     
     // Create explosion at player position (before removing player)
     const playerBounds = this.player.getBounds();
@@ -995,7 +1147,10 @@ export class GameManager {
   
   private handleGameOver(): void {
     this.isGameOver = true;
-    this.gameOverTimer = this.gameOverDelay; // Start 5-second countdown
+    this.gameOverTimer = this.gameOverDelay; // Start 3-second countdown
+    
+    // Play game over sound
+    this.audioManager.playSound(SoundType.GAME_OVER);
     
     // Update high score if current score is higher
     if (this.score > this.highScore) {
@@ -1106,7 +1261,7 @@ export class GameManager {
       );
     }
     
-    // Draw restart instruction (center aligned) - only show after 5 seconds
+    // Draw restart instruction (center aligned) - only show after 3 seconds
     if (this.victoryTimer > 300) {
       this.renderer.drawText(
         'PRESS SPACE/ENTER/R TO RESTART',
@@ -1164,7 +1319,7 @@ export class GameManager {
       );
     }
     
-    // Draw restart instruction (center aligned) - only show after 5 seconds
+    // Draw restart instruction (center aligned) - only show after 3 seconds
     if (this.gameOverTimer <= 0) {
       this.renderer.drawText(
         'PRESS SPACE/ENTER/R TO RESTART',
