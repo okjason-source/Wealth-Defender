@@ -545,11 +545,16 @@ export class BotAI {
     
     // Find nearest threat (projectile or close enemy)
     // Use predicted positions for better evasion
+    // PROJECTILES GET PRIORITY - check them first and more aggressively
     let nearestThreat: Projectile | Enemy | null = null;
     let nearestThreatDistance = Infinity;
     let nearestThreatPredictedPos: { x: number; y: number } | null = null;
-    const threatDetectionRange = 60 * this.avoidanceSkill; // Better detection range
     
+    // Projectiles: Much larger detection range (they move fast!)
+    const projectileDetectionRange = 100 * this.avoidanceSkill; // Increased from 60
+    // Enemies: Standard detection range (not used in this scope, but kept for clarity)
+    
+    // PRIORITY: Check projectiles first (they're the most dangerous)
     for (const projectile of enemyProjectiles) {
       if (projectile.type !== ProjectileType.ENEMY) continue;
       
@@ -562,58 +567,45 @@ export class BotAI {
       const dy = playerCenterY - projY;
       const distance = Math.sqrt(dx * dx + dy * dy);
       
-      // Predict if projectile will hit player (better prediction with skill)
+      // For projectiles, use simpler but more aggressive detection
+      // Most projectiles come straight down, so check if it's above player
+      const isAbovePlayer = projY < playerCenterY;
+      const horizontalDistance = Math.abs(dx);
+      
+      // Predict projectile position (projectiles move fast, predict 10 frames ahead)
       const projVx = projectile.vx;
       const projVy = projectile.vy;
-      const projSpeed = Math.sqrt(projVx * projVx + projVy * projVy);
+      const predictionFrames = 10; // Predict further ahead
+      const futureProjX = projX + projVx * predictionFrames;
+      const futureProjY = projY + projVy * predictionFrames;
       
-      // Advanced trajectory prediction - calculate where projectile will be
-      const timeToReach = distance / Math.max(projSpeed, 0.1);
+      // Check if projectile will be near player's X position
+      const futureHorizontalDistance = Math.abs(futureProjX - playerCenterX);
+      const futureVerticalDistance = futureProjY - playerCenterY; // Positive = below player
       
-      // Predict future player position (if moving)
-      const playerVx = 0; // Player velocity not available, but we can estimate
-      const playerVy = 0;
-      const futurePlayerX = playerCenterX + playerVx * timeToReach;
-      const futurePlayerY = playerCenterY + playerVy * timeToReach;
-      const futureProjX = projX + projVx * timeToReach;
-      const futureProjY = projY + projVy * timeToReach;
-      const futureDistance = Math.sqrt(
-        Math.pow(futurePlayerX - futureProjX, 2) + 
-        Math.pow(futurePlayerY - futureProjY, 2)
-      );
+      // AGGRESSIVE DETECTION: Any projectile above player and within horizontal range
+      // OR any projectile that will be near player's position
+      const willBeNearPlayer = futureHorizontalDistance < 25 && futureVerticalDistance > -10 && futureVerticalDistance < 30;
+      const isThreatening = (isAbovePlayer && horizontalDistance < 30) || willBeNearPlayer;
       
-      // Improved threat detection (sees threats earlier and more accurately)
-      // Master level bots can see threats much further away
-      const predictionTime = 50 / this.avoidanceSkill; // Better prediction window
-      const collisionRadius = 8; // Player + projectile collision radius
-      
-      if (distance < threatDetectionRange && (timeToReach < predictionTime || futureDistance < collisionRadius * 2)) {
-        // Check if projectile is actually heading toward player
-        const angleToPlayer = Math.atan2(dy, dx);
-        const projAngle = Math.atan2(projVy, projVx);
-        const angleDiff = Math.abs(angleToPlayer - projAngle);
-        const normalizedAngleDiff = Math.min(angleDiff, Math.PI * 2 - angleDiff);
-        
-        // More accurate threat assessment with skill
-        // Master level bots have wider threat detection angle
-        const threatAngle = Math.PI / (1.5 + this.avoidanceSkill * 0.5); // Wider angle for better bots
-        if (normalizedAngleDiff < threatAngle || distance < 40) {
-          if (distance < nearestThreatDistance) {
-            nearestThreat = projectile;
-            nearestThreatDistance = distance;
-            // Predict projectile position (projectiles move fast, predict 5 frames ahead)
-            nearestThreatPredictedPos = {
-              x: futureProjX,
-              y: futureProjY
-            };
-          }
+      if (distance < projectileDetectionRange && isThreatening) {
+        // Projectile is a threat - prioritize it
+        if (distance < nearestThreatDistance) {
+          nearestThreat = projectile;
+          nearestThreatDistance = distance;
+          // Predict projectile position
+          nearestThreatPredictedPos = {
+            x: futureProjX,
+            y: futureProjY
+          };
         }
       }
     }
     
     // Check for close enemies (breakaway enemies are especially dangerous)
     // Use predicted positions to anticipate enemy movement
-    if (nearestThreatDistance > 40) { // Only check enemies if no immediate projectile threat
+    // Only check enemies if no immediate projectile threat (projectiles take priority!)
+    if (nearestThreatDistance > 50) { // Increased threshold - projectiles take absolute priority
       for (const enemy of enemies) {
         // Predict enemy position (look 10 frames ahead)
         const predictedPos = this.predictEnemyPosition(enemy, 10);
@@ -638,6 +630,9 @@ export class BotAI {
     
     // PRIORITY 0: ALWAYS EVADE THREATS FIRST - Never forget to evade!
     if (nearestThreat) {
+      // Check if threat is a projectile (projectiles need special handling)
+      const isProjectile = 'type' in nearestThreat && nearestThreat.type === ProjectileType.ENEMY;
+      
       // Use predicted position if available, otherwise use current position
       let threatX: number;
       let threatY: number;
@@ -646,7 +641,7 @@ export class BotAI {
         threatX = nearestThreatPredictedPos.x;
         threatY = nearestThreatPredictedPos.y;
       } else {
-      const threatBounds = nearestThreat.getBounds();
+        const threatBounds = nearestThreat.getBounds();
         threatX = threatBounds.x + threatBounds.width / 2;
         threatY = threatBounds.y + threatBounds.height / 2;
       }
@@ -656,102 +651,170 @@ export class BotAI {
       const dy = playerCenterY - threatY;
       const distance = Math.sqrt(dx * dx + dy * dy);
       
-      // Better movement: prioritize horizontal evasion (left/right movement)
-      // Bot can move left/right to evade projectiles - this is the primary evasion method
-      // Handle both Projectile and Enemy types
+      // Get threat velocity
       const threatVx = 'vx' in nearestThreat ? nearestThreat.vx : 0;
       const threatVy = 'vy' in nearestThreat ? nearestThreat.vy : 0;
       
-      // Check if threat is a projectile (projectiles should prioritize horizontal evasion more)
-      const isProjectile = 'type' in nearestThreat && nearestThreat.type === ProjectileType.ENEMY;
-      
-      // Calculate perpendicular escape direction (prioritize horizontal)
-      // For projectiles coming straight down (vy > 0, vx = 0), this gives horizontal escape
-      let escapeX = -threatVy; // Perpendicular to threat velocity (horizontal when threat is vertical)
-      let escapeY = threatVx;
-      let escapeLength = Math.sqrt(escapeX * escapeX + escapeY * escapeY);
-      
-      // If projectile is coming straight down or up, prefer horizontal evasion
-      if (Math.abs(threatVx) < 0.1 && Math.abs(threatVy) > 0.1) {
-        // Projectile is mostly vertical - escape horizontally (left or right)
-        escapeX = dx > 0 ? 1 : -1; // Move away horizontally
-        escapeY = 0;
-        escapeLength = 1;
-      } else if (escapeLength < 0.1) {
-        // Threat has no clear velocity - escape horizontally away from threat
-        escapeX = dx > 0 ? 1 : -1;
-        escapeY = 0;
-        escapeLength = 1;
-      }
-      
-      if (escapeLength > 0) {
-        // PRIORITIZE HORIZONTAL MOVEMENT - especially for projectiles
-        // For projectiles: almost pure horizontal evasion (left/right is fastest and safest)
-        // For enemies: still prioritize horizontal but allow some vertical
-        if (isProjectile) {
-          // Projectiles: STRONG horizontal priority (2.5x), minimal vertical (0.2x)
-          moveX = (escapeX / escapeLength) * this.avoidanceSkill * 2.5; // Very strong horizontal priority
-          moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.2; // Minimal vertical movement
-          
-          // Also add component away from threat (prioritize horizontal escape)
-          moveX += (dx / distance) * 1.0 * this.avoidanceSkill; // Very strong horizontal component
-          moveY += (dy / distance) * 0.1 * this.avoidanceSkill; // Minimal vertical component
+      // PROJECTILE EVASION: Prioritize vertical movement (up/down)
+      if (isProjectile) {
+        // For projectiles, prioritize vertical evasion (up/down movement)
+        // Move away from the projectile vertically
+        
+        // Determine which direction to move (up or down)
+        // If projectile is above player, move down. If below, move up.
+        if (threatY < playerCenterY) {
+          // Projectile is above - move down
+          moveY = 1.0; // Move down
         } else {
-          // Enemies: moderate horizontal priority (1.5x), reduced vertical (0.6x)
-          moveX = (escapeX / escapeLength) * this.avoidanceSkill * 1.5; // 1.5x horizontal priority
-          moveY = (escapeY / escapeLength) * this.avoidanceSkill * 0.6; // Reduced vertical movement
-          
-          // Also add component away from threat (prioritize horizontal escape)
-          moveX += (dx / distance) * 0.7 * this.avoidanceSkill; // Strong horizontal component
-          moveY += (dy / distance) * 0.3 * this.avoidanceSkill; // Weaker vertical component
+          // Projectile is below - move up
+          moveY = -1.0; // Move up
         }
         
-        // Clamp movement (ensures full directional range)
+        // For projectiles, use maximum vertical speed
+        moveY *= this.avoidanceSkill * 1.5; // Strong vertical evasion
+        
+        // Horizontal movement for projectiles (only if projectile is very close horizontally)
+        if (Math.abs(dx) < 10) {
+          // Projectile is very close horizontally - move away horizontally
+          moveX = dx > 0 ? -1.0 : 1.0; // Move away horizontally
+          moveX *= this.avoidanceSkill;
+        } else {
+          // No horizontal movement - pure vertical evasion
+          moveX = 0;
+        }
+        
+        // Clamp movement
         moveX = Math.max(-1, Math.min(1, moveX));
         moveY = Math.max(-1, Math.min(1, moveY));
+        
+        // PROJECTILES: No gap-finding, no return-to-base - pure evasion only
+        // Skip all other logic when evading projectiles
       } else {
-        // Fallback: prioritize horizontal escape (always can move left/right)
-        const escapeDistance = Math.sqrt(dx * dx + dy * dy);
-        if (escapeDistance > 0) {
-          // Move away, but prioritize horizontal (left/right) - even more for projectiles
-          if (isProjectile) {
-            moveX = (dx / escapeDistance) * this.avoidanceSkill * 2.0; // Very strong horizontal
-            moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.2; // Minimal vertical
-        } else {
-            moveX = (dx / escapeDistance) * this.avoidanceSkill * 1.2;
-            moveY = (dy / escapeDistance) * this.avoidanceSkill * 0.5;
-          }
-        } else {
-          // Last resort: strong horizontal movement (left or right)
-          moveX = dx > 0 ? 1 : -1;
-          moveY = 0; // No vertical movement as last resort
-        }
-      }
-      
-      // AFTER evading, check if we can return to base (but evasion takes priority)
-      // Only consider returning if threat is not immediate
-      if (nearestThreatDistance > 25) { // Threat is further away
-        // Check if enemies are in bottom 25% (waiting for wrap-around)
-        const bottom25PercentY = gameHeight * 0.75; // 112.5 pixels for 150 height
-        let enemiesInBottom25Percent = false;
+        // ENEMY EVASION: Prioritize vertical movement (up/down)
+        // Calculate perpendicular escape direction (prioritize vertical)
+        let escapeX = threatVy; // Perpendicular to threat velocity (vertical priority)
+        let escapeY = -threatVx;
+        let escapeLength = Math.sqrt(escapeX * escapeX + escapeY * escapeY);
         
-        for (const enemy of enemies) {
-          const enemyBounds = enemy.getBounds();
-          const enemyY = enemyBounds.y + enemyBounds.height / 2;
-          if (enemyY > bottom25PercentY) {
-            enemiesInBottom25Percent = true;
-            break;
-          }
+        // If enemy has no clear velocity, escape vertically away
+        if (escapeLength < 0.1) {
+          escapeX = 0;
+          escapeY = dy > 0 ? 1 : -1; // Move away vertically
+          escapeLength = 1;
         }
         
-        // If no enemies in bottom 25% and we're above base, try to return while evading
-        if (!enemiesInBottom25Percent && playerCenterY < preferredBottomY) {
-          // Add slight downward component while still prioritizing evasion
-          moveY = Math.max(0.2, moveY * 0.7); // Reduce upward evasion slightly, allow some downward
+        if (escapeLength > 0) {
+          // Enemies: strong vertical priority (1.5x), reduced horizontal (0.6x)
+          moveX = (escapeX / escapeLength) * this.avoidanceSkill * 0.6;
+          moveY = (escapeY / escapeLength) * this.avoidanceSkill * 1.5;
+          
+          // Also add component away from threat (prioritize vertical escape)
+          moveX += (dx / distance) * 0.3 * this.avoidanceSkill;
+          moveY += (dy / distance) * 0.7 * this.avoidanceSkill;
+        } else {
+          // Fallback: escape vertically
+          const escapeDistance = Math.sqrt(dx * dx + dy * dy);
+          if (escapeDistance > 0) {
+            moveX = (dx / escapeDistance) * this.avoidanceSkill * 0.5;
+            moveY = (dy / escapeDistance) * this.avoidanceSkill * 1.2;
+          } else {
+            moveX = 0;
+            moveY = dy > 0 ? 1 : -1;
+          }
         }
-        // If enemies are in bottom 20%, keep current evasion (stay above)
-      }
-      // If threat is very close (< 25 pixels), pure evasion only - no return to base
+        
+        // Clamp movement
+        moveX = Math.max(-1, Math.min(1, moveX));
+        moveY = Math.max(-1, Math.min(1, moveY));
+        
+        // AFTER evading enemies, check if we can find a gap to move toward shooting position
+        // Only consider gap-finding if threat is not immediate
+        if (nearestThreatDistance > 40) { // Increased threshold for enemies (was 30)
+          // Find best target for shooting
+          let bestTarget: Enemy | null = null;
+          let bestScore = -Infinity;
+          
+          for (const enemy of enemies) {
+            const enemyBounds = enemy.getBounds();
+            const enemyX = enemyBounds.x + enemyBounds.width / 2;
+            const enemyY = enemyBounds.y + enemyBounds.height / 2;
+            
+            const dx = enemyX - playerCenterX;
+            const dy = enemyY - playerCenterY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Score targets: prefer enemies above player
+            let score = 100 / (distance + 1);
+            if (dy < 0) score += 40; // Bonus for enemies above
+            if (Math.abs(dx) < 15) score += 50; // Bonus for horizontal alignment
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestTarget = enemy;
+            }
+          }
+          
+          // Try to find a gap toward the shooting position
+          if (bestTarget) {
+            const gapDirection = this.findGapToShootingPosition(
+              playerCenterX,
+              playerCenterY,
+              enemies,
+              enemyProjectiles,
+              bestTarget,
+              gameWidth,
+              gameHeight
+            );
+            
+            if (gapDirection) {
+              // Found a gap! Make a stride toward shooting position
+              // Blend evasion with gap movement (60% gap, 40% evasion)
+              moveX = moveX * 0.4 + gapDirection.x * 0.6 * this.positioningSkill;
+              moveY = moveY * 0.4 + gapDirection.y * 0.6 * this.positioningSkill;
+              
+              // Clamp movement
+              moveX = Math.max(-1, Math.min(1, moveX));
+              moveY = Math.max(-1, Math.min(1, moveY));
+            } else {
+              // No clear gap found, check if we can return to base
+              const bottom25PercentY = gameHeight * 0.75;
+              let enemiesInBottom25Percent = false;
+              
+              for (const enemy of enemies) {
+                const enemyBounds = enemy.getBounds();
+                const enemyY = enemyBounds.y + enemyBounds.height / 2;
+                if (enemyY > bottom25PercentY) {
+                  enemiesInBottom25Percent = true;
+                  break;
+                }
+              }
+              
+              // If no enemies in bottom 25% and we're above base, try to return while evading
+              if (!enemiesInBottom25Percent && playerCenterY < preferredBottomY) {
+                moveY = Math.max(0.2, moveY * 0.7); // Reduce upward evasion slightly
+              }
+            }
+          } else {
+            // No target, check if we can return to base
+            const bottom25PercentY = gameHeight * 0.75;
+            let enemiesInBottom25Percent = false;
+            
+            for (const enemy of enemies) {
+              const enemyBounds = enemy.getBounds();
+              const enemyY = enemyBounds.y + enemyBounds.height / 2;
+              if (enemyY > bottom25PercentY) {
+                enemiesInBottom25Percent = true;
+                break;
+              }
+            }
+            
+            if (!enemiesInBottom25Percent && playerCenterY < preferredBottomY) {
+              moveY = Math.max(0.2, moveY * 0.7);
+            }
+          }
+          // If enemy threat is very close (< 40 pixels), pure evasion only - no gap finding
+        }
+      } // End of else block for isProjectile
     } else {
       // No immediate projectile threat - but still check for close enemies and position to shoot
       // Continue constant horizontal patrol for evasion even when no threats
@@ -1293,6 +1356,135 @@ export class BotAI {
     // Check if velocity is pointing toward player (within 45 degrees)
     const dotProduct = (dx * enemy.vx + dy * enemy.vy) / (distance * speed);
     return dotProduct > 0.7; // Moving toward player
+  }
+  
+  /**
+   * Find gaps between threats that lead toward shooting positions
+   * Returns the best gap direction to move through, or null if no safe gap found
+   */
+  private findGapToShootingPosition(
+    playerCenterX: number,
+    playerCenterY: number,
+    enemies: Enemy[],
+    enemyProjectiles: Projectile[],
+    targetEnemy: Enemy | null,
+    _gameWidth: number,
+    gameHeight: number
+  ): { x: number; y: number } | null {
+    if (!targetEnemy) return null;
+    
+    const targetBounds = targetEnemy.getBounds();
+    const targetX = targetBounds.x + targetBounds.width / 2;
+    
+    // Calculate desired shooting position (below target, horizontally aligned)
+    const desiredX = targetX;
+    const desiredY = Math.min(gameHeight * 0.92, playerCenterY); // Stay near bottom
+    
+    // Calculate direction toward shooting position
+    const dx = desiredX - playerCenterX;
+    const dy = desiredY - playerCenterY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance < 5) return null; // Already at position
+    
+    // Sample points along the path to shooting position
+    const samplePoints = 8;
+    const playerSize = 8; // Approximate player size for collision checking
+    const safetyMargin = 12; // Extra margin for safety
+    
+    // Check multiple potential paths (straight, left curve, right curve)
+    const pathOptions: { x: number; y: number; score: number }[] = [];
+    
+    for (let pathOffset = -1; pathOffset <= 1; pathOffset++) {
+      let pathClear = true;
+      let threatDensity = 0;
+      
+      // Sample points along this path
+      for (let i = 1; i <= samplePoints; i++) {
+        const t = i / samplePoints;
+        const sampleX = playerCenterX + dx * t + pathOffset * 15 * (1 - t); // Curve left/right
+        const sampleY = playerCenterY + dy * t;
+        
+        // Check if this point is safe (no threats nearby)
+        for (const enemy of enemies) {
+          const enemyBounds = enemy.getBounds();
+          const enemyX = enemyBounds.x + enemyBounds.width / 2;
+          const enemyY = enemyBounds.y + enemyBounds.height / 2;
+          
+          const distToEnemy = Math.sqrt(
+            Math.pow(sampleX - enemyX, 2) + Math.pow(sampleY - enemyY, 2)
+          );
+          
+          if (distToEnemy < playerSize + safetyMargin) {
+            pathClear = false;
+            break;
+          }
+          
+          // Track threat density (closer threats = higher density)
+          if (distToEnemy < 40) {
+            threatDensity += (40 - distToEnemy) / 40;
+          }
+        }
+        
+        if (!pathClear) break;
+        
+        // Check projectiles
+        for (const projectile of enemyProjectiles) {
+          if (projectile.type !== ProjectileType.ENEMY) continue;
+          
+          const projBounds = projectile.getBounds();
+          const projX = projBounds.x + projBounds.width / 2;
+          const projY = projBounds.y + projBounds.height / 2;
+          
+          // Predict projectile position
+          const projVx = projectile.vx;
+          const projVy = projectile.vy;
+          const timeToSample = i * 2; // Frames to reach sample point
+          const futureProjX = projX + projVx * timeToSample;
+          const futureProjY = projY + projVy * timeToSample;
+          
+          const distToProj = Math.sqrt(
+            Math.pow(sampleX - futureProjX, 2) + Math.pow(sampleY - futureProjY, 2)
+          );
+          
+          if (distToProj < playerSize + safetyMargin) {
+            pathClear = false;
+            break;
+          }
+          
+          if (distToProj < 30) {
+            threatDensity += (30 - distToProj) / 30;
+          }
+        }
+        
+        if (!pathClear) break;
+      }
+      
+      if (pathClear) {
+        // Calculate direction for this path
+        const pathDx = desiredX - playerCenterX + pathOffset * 10;
+        const pathDy = desiredY - playerCenterY;
+        const pathDist = Math.sqrt(pathDx * pathDx + pathDy * pathDy);
+        
+        if (pathDist > 0) {
+          // Score this path: prefer shorter paths with lower threat density
+          const pathScore = (100 / (pathDist + 1)) - (threatDensity * 5);
+          pathOptions.push({
+            x: pathDx / pathDist,
+            y: pathDy / pathDist,
+            score: pathScore
+          });
+        }
+      }
+    }
+    
+    // Return the best path (highest score)
+    if (pathOptions.length > 0) {
+      pathOptions.sort((a, b) => b.score - a.score);
+      return { x: pathOptions[0].x, y: pathOptions[0].y };
+    }
+    
+    return null;
   }
   
   /**
