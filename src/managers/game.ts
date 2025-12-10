@@ -1155,6 +1155,9 @@ export class GameManager {
     this.isGameOver = true;
     this.gameOverTimer = this.gameOverDelay; // Start 3-second countdown
     
+    // Stop background music
+    this.audioManager.stopBackgroundMusic();
+    
     // Play game over sound
     this.audioManager.playSound(SoundType.GAME_OVER);
     
@@ -1214,6 +1217,9 @@ export class GameManager {
     
     // Start first round
     this.startRound(this.round, false);
+    
+    // Restart background music
+    this.audioManager.startBackgroundMusic();
     
     // Restart game loop
     this.start();
