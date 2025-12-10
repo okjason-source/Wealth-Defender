@@ -478,7 +478,7 @@ export class GameManager {
       // New projectiles fired - play sound (only play once per frame to avoid spam)
       const newProjectiles = currentPlayerProjectileCount - this.previousPlayerProjectileCount;
       if (newProjectiles > 0) {
-        this.audioManager.playSound(SoundType.PLAYER_SHOOT, 0.6);
+        this.audioManager.playSound(SoundType.PLAYER_SHOOT, 0.3);
       }
     }
     this.previousPlayerProjectileCount = currentPlayerProjectileCount;
