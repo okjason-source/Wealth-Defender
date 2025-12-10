@@ -502,12 +502,24 @@ export class AudioManager {
    */
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
+    // Stop all active buzz sounds when disabling
+    if (!enabled) {
+      this.stopAllEnemyBuzzes();
+    }
   }
 
   /**
    * Check if audio is enabled
    */
   isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  /**
+   * Toggle audio on/off
+   */
+  toggle(): boolean {
+    this.setEnabled(!this.enabled);
     return this.enabled;
   }
 

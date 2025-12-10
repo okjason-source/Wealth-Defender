@@ -26,6 +26,7 @@ A classic arcade shoot 'em up game inspired by Round 42, featuring 8-bit pixel a
 | Pause | P or Escape |
 | Toggle Bot | B |
 | Toggle Master Level | M (toggles bot between master level and defaults) |
+| Toggle Sound | L |
 
 ## 🚀 Quick Start
 

@@ -9,6 +9,8 @@ export class InputSystem {
   private mouseY: number = 0;
   private mouseDown: boolean = false;
   private spacePressed: boolean = false;
+  private metaKeyPressed: boolean = false; // Command on Mac, Windows key on Windows
+  private ctrlKeyPressed: boolean = false;
   
   constructor() {
     this.setupEventListeners();
@@ -18,6 +20,8 @@ export class InputSystem {
     // Keyboard events
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.key.toLowerCase());
+      this.metaKeyPressed = e.metaKey;
+      this.ctrlKeyPressed = e.ctrlKey;
       if (e.key === ' ') {
         e.preventDefault();
         this.spacePressed = true;
@@ -26,6 +30,8 @@ export class InputSystem {
     
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.key.toLowerCase());
+      this.metaKeyPressed = e.metaKey;
+      this.ctrlKeyPressed = e.ctrlKey;
       if (e.key === ' ') {
         this.spacePressed = false;
       }
@@ -120,6 +126,15 @@ export class InputSystem {
   wasKeyJustPressed(key: string): boolean {
     // Check if key was just pressed this frame (not held)
     return this.justPressedKeys.has(key.toLowerCase());
+  }
+  
+  /**
+   * Check if a key was just pressed with Command (Mac) or Ctrl (Windows/Linux) modifier
+   */
+  wasKeyJustPressedWithModifier(key: string): boolean {
+    const keyPressed = this.wasKeyJustPressed(key);
+    const modifierPressed = this.metaKeyPressed || this.ctrlKeyPressed;
+    return keyPressed && modifierPressed;
   }
 }
 

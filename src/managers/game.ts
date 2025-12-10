@@ -308,6 +308,12 @@ export class GameManager {
     this.input.update();
     this.frameCount++;
     
+    // Toggle sound with 'L' key
+    if (this.input.wasKeyJustPressed('l')) {
+      const isEnabled = this.audioManager.toggle();
+      console.log('Sound', isEnabled ? 'ON' : 'OFF');
+    }
+    
     // Toggle bot with 'B' key (only on key press, not hold)
     if (this.input.wasKeyJustPressed('b')) {
       this.botAI.toggle();
