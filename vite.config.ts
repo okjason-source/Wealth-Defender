@@ -13,8 +13,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 3044,
     open: true,
+    strictPort: true,
   },
   build: {
     outDir: 'dist',
