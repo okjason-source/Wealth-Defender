@@ -27,3 +27,12 @@ npm-debug.log*
 # Local run state
 .wealth-defender.pid
 
+# Local-only (kept on disk, not on GitHub)
+start.sh
+stop.sh
+Diamonds_in_8_bits.m4a
+silent-night-christmas-piano-cover-441733.mp3
+diamond.png
+CONTRIBUTING.md
+ENEMY_STRATEGIES.md
+src/audio/README.md
